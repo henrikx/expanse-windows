@@ -38,6 +38,7 @@ sealed partial class Canvas
     RECT monitor, work;
     bool active;   // the overlay is up: zoomed out, or mid-glide
     bool gliding;  // up only to glide/dive into a window; input waits until it's handed back
+    bool shortcutKey; // the last key pressed was a shortcut, so the character it makes isn't typed
     bool paused;   // windows put back; the canvas ignores events and the hotkey until resumed
     bool pendingSync; // windows came or went mid-glide: sync once it's handed back
     nint lastFocusedWindow; // the canvas window you were last in
@@ -2718,24 +2719,35 @@ sealed partial class Canvas
                 spaceHeld = false;
                 if (drag?.What != DragKind.Pan) SetCursor(LoadCursor(0, IDC_ARROW));
                 return 0;
+            // After the key's WM_KEYDOWN. Characters rather than keys, for æøå, AltGr and dead keys.
+            case 0x102 /* WM_CHAR */ when active && !gliding && drag == null && !shortcutKey && (int)wParam >= ' ' && (int)wParam != 127:
+                TypeIntoSearch((char)wParam);
+                return 0;
             case WM_KEYDOWN:
             {
+                shortcutKey = true;
                 if (!active || gliding) return 0;
                 bool ctrl = GetKeyState(VK_CONTROL) < 0;
+                if (ctrl && GetKeyState(VK_MENU) < 0) // AltGr, which types
+                {
+                    shortcutKey = false;
+                    return 0;
+                }
                 switch ((int)wParam)
                 {
                     case VK_ESCAPE when selected.Count > 0: selected.Clear(); Redraw(); break;
                     case VK_ESCAPE: Exit(null); break;
                     case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1]); break;
-                    case VK_SPACE when !spaceHeld:
+                    case VK_SPACE:
+                        if (spaceHeld) break;
                         spaceHeld = true;
                         SetCursor(LoadCursor(0, IDC_SIZEALL));
                         break;
                     case VK_A when ctrl: selected.UnionWith(windows); Redraw(); break;
                     case VK_W when ctrl: CloseKey(); break;
-                    case VK_T when !ctrl: Tidy(); break;
+                    case VK_T when ctrl: Tidy(); break;
                     case VK_F when ctrl: OpenSearch(); break;
-                    case VK_G when !ctrl: ToggleTree(); break;
+                    case VK_G when ctrl: ToggleTree(); break;
                     case VK_0 or VK_NUMPAD0 when !ctrl:
                         CancelAnimation();
                         returnCamera = null;
@@ -2748,6 +2760,7 @@ sealed partial class Canvas
                     case VK_RIGHT: Navigate(Direction.Right); break;
                     case VK_UP: Navigate(Direction.Up); break;
                     case VK_DOWN: Navigate(Direction.Down); break;
+                    default: shortcutKey = false; break;
                 }
                 return 0;
             }

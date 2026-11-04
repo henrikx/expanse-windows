@@ -85,11 +85,11 @@ readonly record struct Label(nint Hwnd, string Text, RectD Picture);
 
 /// The groups panel in view coordinates: see GroupTree.
 readonly record struct TreeRowDrawing(RectD Rect, string Text, int Depth, bool Heading, bool Expandable, bool Expanded, string Count, bool Highlighted, IconImage? Icon);
-readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string Query, IReadOnlyList<TreeRowDrawing> Rows, string Empty, bool Dark)
+readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string Query, IReadOnlyList<TreeRowDrawing> Rows, string Empty, bool Dark, bool Typing)
 {
     public const string Placeholder = "Search groups and apps";
     public bool Same(TreeDrawing o) =>
-        Panel == o.Panel && Search == o.Search && List == o.List && Query == o.Query && Empty == o.Empty && Dark == o.Dark && Rows.SequenceEqual(o.Rows);
+        Panel == o.Panel && Search == o.Search && List == o.List && Query == o.Query && Empty == o.Empty && Dark == o.Dark && Typing == o.Typing && Rows.SequenceEqual(o.Rows);
 }
 
 /// A group in view coordinates: its box, its name's pill and the delete button beside it.

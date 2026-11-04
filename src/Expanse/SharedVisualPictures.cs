@@ -554,7 +554,7 @@ sealed class SharedVisualPictures : IPictures
             d2d.FillRoundedRectangle(new RoundedRectangle(Local(d.Search), fieldCorner, fieldCorner), field);
             d2d.DrawText("\uE721", glyph, Raw(d.Search.X + 2 * k, d.Search.Y, d.Search.X + 26 * k, d.Search.Bottom), muted);
             var typed = GroupTree.SearchTextRect(d.Search, k);
-            d2d.DrawText(d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, plain, Raw(typed.X, typed.Y, typed.Right, typed.Bottom), d.Query.Length > 0 ? ink : muted);
+            if (!d.Typing) d2d.DrawText(d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, plain, Raw(typed.X, typed.Y, typed.Right, typed.Bottom), d.Query.Length > 0 ? ink : muted);
             d2d.PushAxisAlignedClip(Raw(d.List.X, d.List.Y, d.List.Right, d.List.Bottom), AntialiasMode.Aliased);
             foreach (var row in d.Rows)
             {

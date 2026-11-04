@@ -25,7 +25,8 @@ static class Welcome
         ("Middle-button drag", "Move around the canvas"),
         ("Drag a window", "Move it; it snaps into place"),
         ("Ctrl + drag", "Select several, then drag or close them together"),
-        ("T", "Tidy up: line up each group, where it is"),
+        ("Ctrl + T", "Tidy up: line up each group, where it is"),
+        ("Type", "Search the groups and apps"),
     };
 
     /// `hotCorner`: the corner in use (a HotCorner key); `trouble`: shortcuts another app holds.
@@ -43,7 +44,7 @@ static class Welcome
         var instance = RegisterWindowClass("ExpanseWelcome", proc);
         var (monitor, work) = PrimaryMonitor();
         double k = PrimaryDpi() / 96.0;
-        int w = (int)(600 * k), h = (int)(660 * k);
+        int w = (int)(600 * k), h = (int)(692 * k);
         hwnd = CreateWindowEx(0, "ExpanseWelcome", "Welcome to Expanse", 0x00C00000 | 0x00080000 | 0x00020000, // caption, system menu, minimise
             work.Left + (work.Width - w) / 2, work.Top + (work.Height - h) / 2, w, h, 0, 0, instance, 0);
         if (hwnd == 0) { Log.Info("welcome: couldn't open"); return 0; }

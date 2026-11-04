@@ -89,6 +89,14 @@ sealed partial class Canvas
         var at = GroupTree.SearchTextRect(GroupTree.SearchRect(TreePanel, k), k);
         searchBox.Open(overlay.Hwnd, (int)Math.Round(at.X) + monitor.Left, (int)Math.Round(at.Y) + monitor.Top,
             (int)Math.Round(at.W), (int)Math.Round(at.H), treeQuery, k);
+        Redraw(); // the box shows what's under it, so the panel stops drawing the text
+    }
+
+    /// A character typed on the canvas that no shortcut took starts a search with it.
+    void TypeIntoSearch(char c)
+    {
+        if (!searchBox.IsOpen) OpenSearch();
+        searchBox.Type(c);
     }
 
     /// Esc clears the search, then leaves it; Tab leaves it; Enter goes to the highlighted row.
@@ -190,7 +198,7 @@ sealed partial class Canvas
                 row.Kind == TreeRowKind.App ? "" : row.Count.ToString(), i == treeHover || i == treeHighlight, icon));
         }
         string empty = rows.Count > 0 ? "" : TreeHasSearch ? "No matches" : "Nothing on the canvas yet";
-        return new TreeDrawing(panel, GroupTree.SearchRect(panel, k), list, treeQuery, shown, empty, dark);
+        return new TreeDrawing(panel, GroupTree.SearchRect(panel, k), list, treeQuery, shown, empty, dark, searchBox.IsOpen);
     }
 
     /// With DWM thumbnails, plainly on the backdrop (a thumbnail can cover it).
@@ -213,7 +221,7 @@ sealed partial class Canvas
             DrawText(hdc, row.Text, -1, ref box, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
         var text = R(GroupTree.SearchTextRect(d.Search, k));
-        DrawText(hdc, d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, -1, ref text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        if (!d.Typing) DrawText(hdc, d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, -1, ref text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         Gdi32.DeleteObject(back);
         Gdi32.DeleteObject(field);
     }

@@ -10,6 +10,7 @@ namespace Expanse;
 sealed class SearchBox
 {
     const int GWLP_WNDPROC = -4, VK_ESC = 0x1B, VK_TAB = 0x09, MaxLength = 120;
+    const byte Opacity = 217; // of 255: the panel shows through a little
     const uint ES_AUTOHSCROLL = 0x80, EM_SETSEL = 0xB1, EM_LIMITTEXT = 0xC5, WM_SETFONT = 0x30, WM_KILLFOCUS = 0x8, WM_CHAR = 0x102,
         WM_CUT = 0x300, WM_PASTE = 0x302, WM_CLEAR = 0x303, WM_UNDO = 0x304;
 
@@ -30,9 +31,10 @@ sealed class SearchBox
     {
         if (edit == 0)
         {
-            edit = CreateWindowEx((uint)(WS_EX_TOPMOST | WS_EX_TOOLWINDOW), "EDIT", current, unchecked((uint)WS_POPUP) | ES_AUTOHSCROLL,
+            edit = CreateWindowEx((uint)(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED), "EDIT", current, unchecked((uint)WS_POPUP) | ES_AUTOHSCROLL,
                 x, y, width, height, owner, 0, 0, 0);
             if (edit == 0) { Log.Info($"search: couldn't make the text box: {Marshal.GetLastWin32Error()}"); return; }
+            SetLayeredWindowAttributes(edit, 0, Opacity, LWA_ALPHA);
             baseProc = SetWindowLongPtr(edit, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(proc));
             SendMessage(edit, EM_LIMITTEXT, MaxLength, 0);
         }
@@ -46,10 +48,29 @@ sealed class SearchBox
         text = current;
         SetWindowText(edit, current);
         IsOpen = true;
-        SetWindowPos(edit, HWND_TOPMOST, x, y, width, height, SWP_SHOWWINDOW);
+        // A text box puts its line at the top, so it's made one line high and centred in the space.
+        int line = Math.Min(LineHeight(), height);
+        SetWindowPos(edit, HWND_TOPMOST, x, y + (height - line) / 2, width, line, SWP_SHOWWINDOW);
         SetForegroundWindow(edit);
         SetFocus(edit);
         SendMessage(edit, EM_SETSEL, current.Length, current.Length);
+    }
+
+    int LineHeight()
+    {
+        nint dc = GetDC(edit);
+        nint old = Gdi32.SelectObject(dc, font);
+        var r = default(RECT);
+        DrawText(dc, "Ag", -1, ref r, DT_SINGLELINE | DT_CALCRECT);
+        Gdi32.SelectObject(dc, old);
+        ReleaseDC(edit, dc);
+        return r.Bottom - r.Top;
+    }
+
+    /// Types a character that reached the canvas before the box was up.
+    public void Type(char c)
+    {
+        if (IsOpen) SendMessage(edit, WM_CHAR, c, 1);
     }
 
     /// Takes the box down, keeping nothing; the caller holds the text.
