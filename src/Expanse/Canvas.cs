@@ -1004,6 +1004,7 @@ sealed class Canvas
     {
         nint hwnd = GetForegroundWindow();
         if (paused || active || animation != null || hwnd == 0) return;
+        KeepOtherMonitorsAbove();
         // Our own hand-back just focused it: the window you're in now.
         if (lastOwnFocus.hwnd == hwnd && Stopwatch.GetElapsedTime(lastOwnFocus.at).TotalSeconds < 1)
         {
@@ -1860,6 +1861,7 @@ sealed class Canvas
         returnCamera = null;
         selected.Clear();
         spaceHeld = false;
+        KeepOtherMonitorsAbove();
         if (pendingRestoreAll) { pendingRestoreAll = false; RestoreAll(); }
         Log.Info($"handed back: moved {moved} windows, waited {waited} frames, {Ms(t0):0}ms");
         if (pendingSync) { pendingSync = false; SyncLive(); }
@@ -1932,6 +1934,61 @@ sealed class Canvas
 
     /// Whether a frame (screen coordinates) is at least partly on the main screen.
     bool OnMainScreen(RECT f) => Overlaps(f, monitor);
+
+    /// A canvas window reaching past the main screen shows on the monitor beside it, and one that
+    /// was activated later would cover that monitor's own windows. Those never touch the main
+    /// screen, so they can all go above it without covering anything there: raised together, in
+    /// their own order, without taking focus. Not hung ones, which would stall us.
+    void KeepOtherMonitorsAbove()
+    {
+        if (paused || active) return;
+        var (spilling, others, covered) = ReadStacking();
+        if (spilling.Count == 0) return;
+        Log.Info($"other monitors: canvas windows reaching them: {Listed(spilling)}; their own windows: {Listed(others)}; covered: {covered}");
+        if (!covered) return;
+        // The plain request can be ignored while another app is in front. Going always-on-top and
+        // straight back is a stronger way to the top of the ordinary windows.
+        const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        var bottomFirst = others.Select(o => o.hwnd).Reverse().Where(h => !IsHungAppWindow(h)).ToList();
+        foreach (var h in bottomFirst) SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, flags);
+        if (!ReadStacking().covered) { Log.Info("other monitors: raised"); return; }
+        foreach (var h in bottomFirst)
+        {
+            SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+        }
+        Log.Info($"other monitors: raised through always-on-top, covered now: {ReadStacking().covered}");
+    }
+
+    static string Listed(List<(nint hwnd, RECT frame)> list) =>
+        list.Count == 0 ? "none" : string.Join(", ", list.Select(o => $"{CanvasWindow.Describe(o.hwnd)} {o.frame}"));
+
+    /// Top first: the canvas windows reaching another monitor, that monitor's own windows, and
+    /// whether one of the first lies over one of the second.
+    (List<(nint hwnd, RECT frame)> spilling, List<(nint hwnd, RECT frame)> others, bool covered) ReadStacking()
+    {
+        var canvas = windows.SelectMany(w => w.WithOwned()).Select(o => o.Hwnd).ToHashSet();
+        var spilling = new List<(nint hwnd, RECT frame)>();
+        var others = new List<(nint hwnd, RECT frame)>();
+        bool covered = false;
+        EnumWindows((h, _) =>
+        {
+            if (!IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h)) return true;
+            if (canvas.Contains(h))
+            {
+                var f = Dwm.FrameBounds(h);
+                if (otherMonitors.Any(m => Overlaps(f, m))) spilling.Add((h, f));
+            }
+            else if (elsewhere.Contains(h))
+            {
+                var f = Dwm.FrameBounds(h);
+                covered |= spilling.Any(s => Overlaps(s.frame, f));
+                others.Add((h, f));
+            }
+            return true;
+        }, 0);
+        return (spilling, others, covered);
+    }
 
     /// On another monitor and not on the main screen at all.
     bool OnOtherMonitorOnly(RECT f) => !OnMainScreen(f) && otherMonitors.Any(m => Overlaps(f, m));
@@ -2197,6 +2254,7 @@ sealed class Canvas
                 KillTimer(overlay.Hwnd, SyncTimer);
                 if (!CompositorSettled) { SetTimer(overlay.Hwnd, SyncTimer, 250, 0); return 0; }
                 SyncLive();
+                KeepOtherMonitorsAbove();
                 return 0;
             case WM_TIMER when wParam == RelayoutTimer:
                 KillTimer(overlay.Hwnd, RelayoutTimer);
