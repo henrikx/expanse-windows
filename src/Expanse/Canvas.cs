@@ -261,12 +261,22 @@ sealed partial class Canvas
                         w.LastSized = null;
                     }
                     bool atPlaced = w.Placed is POINT p && p.X == f.Left && p.Y == f.Top;
-                    if (atPlaced) w.Frame = w.Frame with { W = f.Width, H = f.Height };
+                    if (atPlaced)
+                    {
+                        w.Frame = w.Frame with { W = f.Width, H = f.Height };
+                        w.Moves.Landed();
+                    }
                     else if (suspendTracking)
                     {
                         // A display change: Windows moved it; it goes back where the canvas says.
                         w.Frame = w.Frame with { W = f.Width, H = f.Height };
                         w.Placed = null;
+                    }
+                    else if (StillOnItsWay(w, f))
+                    {
+                        // A busy app that hasn't acted on our move: its spot on the canvas stands.
+                        Log.Info($"window {w} still on its way, at {f.Left},{f.Top}, not {w.Placed?.X},{w.Placed?.Y}");
+                        w.Frame = w.Frame with { W = f.Width, H = f.Height };
                     }
                     else if (OnOtherMonitorOnly(f) || (h == crossingWindow && Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects)))
                     {
@@ -338,8 +348,9 @@ sealed partial class Canvas
                 o.Title = Title(h);
                 var f = o.ReadScreenFrame();
                 bool atPlaced = o.Placed is POINT p && p.X == f.Left && p.Y == f.Top;
+                if (atPlaced) o.Moves.Landed();
                 if (!active && suspendTracking) o.Placed = null; // a display change: it goes back by its owner
-                if (!active && !suspendTracking && (!atPlaced || owner.Placed == null))
+                if (!active && !suspendTracking && !StillOnItsWay(o, f) && (!atPlaced || owner.Placed == null))
                 {
                     o.Frame = ScreenToCanvas(f);
                     o.Placed = null;
@@ -361,6 +372,11 @@ sealed partial class Canvas
             w.Owned.AddRange(now);
         }
     }
+
+    /// Found away from its spot, but only because a move we sent hasn't landed. Not while you're
+    /// dragging or have just dragged it: that's you, whatever spot it passes through.
+    bool StillOnItsWay(CanvasWindow w, RECT f) =>
+        w.Hwnd != userMoving && !userSized.Contains(w.Hwnd) && w.Moves.Explains(f.Left, f.Top, Environment.TickCount64);
 
     /// A new dialog nowhere near its owner, while the owner is off screen (or zoomed out,
     /// anywhere): the app put it where you'd see it (Windows centres a message box on the screen
@@ -1928,6 +1944,7 @@ sealed partial class Canvas
             int y = Math.Clamp(fy, monitor.Top, Math.Max(monitor.Top, monitor.Bottom - fh));
             if (x == fx && y == fy) continue;
             if (w.Original == null) { w.Original = r; newOriginals = true; }
+            w.Moves.Sent(fx, fy, x, y, Environment.TickCount64);
             SetWindowPos(w.Hwnd, 0, x - w.Insets.Left, y - w.Insets.Top, 0, 0,
                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
             lifted++;
@@ -2086,12 +2103,14 @@ sealed partial class Canvas
         }
         w.Placed = new POINT(x + w.Insets.Left, y + w.Insets.Top);
         GetWindowRect(w.Hwnd, out var current);
-        if (current.Left == x && current.Top == y) return false;
+        // Already there, unless an earlier move is yet to land: it would then take the window away.
+        if (current.Left == x && current.Top == y && !w.Moves.Any) return false;
         if (w.Original == null)
         {
             w.Original = current;
             if (saveOriginals) Originals.Save(windows);
         }
+        w.Moves.Sent(current.Left + w.Insets.Left, current.Top + w.Insets.Top, w.Placed.Value.X, w.Placed.Value.Y, Environment.TickCount64);
         SetWindowPos(w.Hwnd, 0, x, y, 0, 0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         return true;

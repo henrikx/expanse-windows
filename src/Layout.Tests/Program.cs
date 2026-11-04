@@ -38,6 +38,7 @@ foreach (var (v, want) in new[] { (2.5, 3.0), (-2.5, -3.0), (3.5, 4.0), (0.5, 1.
 int byHand = passes;
 GroupTests.Run(Expect);
 TreeTests.Run(Expect);
+MoveTests.Run(Expect);
 ScreenTests.Run(Expect);
 int groupRules = passes - byHand;
 

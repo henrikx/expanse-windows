@@ -20,6 +20,8 @@ sealed class CanvasWindow
     /// Where we last put the visible frame on screen; a window found elsewhere was moved by
     /// someone else (the user, the app), and its canvas spot follows.
     public POINT? Placed;
+    /// Moves Expanse has sent it that may not have landed: being there isn't someone else moving it.
+    public readonly MovesUnderway Moves = new();
     /// Its window rect before Expanse first moved it, for putting it back on quit.
     public RECT? Original;
     /// The size you chose (by dragging an edge); on a smaller screen the window is shrunk to fit
