@@ -67,7 +67,7 @@ start it with Windows.
 | Click a window | Glide to it and start using it |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Hop to the next window in that direction |
 | Scroll | Zoom around the pointer, up to 100% |
-| Drag empty canvas | Move around the canvas |
+| Middle-button drag | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
 | <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |
 | <kbd>Esc</kbd> | Back to 100% |
@@ -85,7 +85,7 @@ start it with Windows.
 | <kbd>Space</kbd> + drag | Move around the canvas, starting anywhere |
 | Click empty desktop | Zoom out to every window |
 | Scroll on empty desktop | Start zooming out from 100% |
-| Drag on empty desktop | Move around the canvas from 100% |
+| Middle-button drag on empty desktop | Move around the canvas from 100% |
 | Click or drag in the minimap | Move the view there |
 | <kbd>Ctrl</kbd> + drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |

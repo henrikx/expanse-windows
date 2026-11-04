@@ -100,8 +100,8 @@ sealed class Canvas
     int hoveredDesktop = -1;
 
     /// A press on the zoomed-out canvas: on a window (it moves, with the rest of the selection if
-    /// it's in one), on empty canvas (the canvas pans; with Ctrl or Shift, a marquee), or with Space
-    /// held (the canvas pans).
+    /// it's in one), on empty canvas with Ctrl or Shift (a marquee), or with the middle button or
+    /// Space held (the canvas pans).
     sealed class Drag(DragKind what, Vec startPoint)
     {
         public readonly DragKind What = what;
@@ -1174,8 +1174,8 @@ sealed class Canvas
 
     /// With Space held, dragging pans. On a window, its × closes it (or the selection it's in),
     /// Shift toggles it in the selection, and otherwise it drags (with the selection, if it's in
-    /// one). On empty canvas dragging pans and a click clears the selection; with Ctrl a marquee
-    /// selects what it touches, and with Shift it adds to the selection.
+    /// one). On empty canvas a press clears the selection; with Ctrl a marquee selects what it
+    /// touches, and with Shift it adds to the selection. The middle button pans: see Handle.
     void Press(Vec p, bool shift, bool ctrl)
     {
         if (desktopsPanel.Panel.Contains(p))
@@ -1224,7 +1224,12 @@ sealed class Canvas
             drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
             if (!shift) selected.Clear();
         }
-        else drag = new Drag(DragKind.Pan, p);
+        else
+        {
+            selected.Clear();
+            Redraw();
+            return;
+        }
         SetCapture(overlay.Hwnd);
         Redraw();
     }
@@ -1302,9 +1307,6 @@ sealed class Canvas
             case DragKind.Marquee when d.Moved:
                 Log.Info($"marquee: {selected.Count} selected");
                 break;
-            case DragKind.Pan when click && !d.Moved && !spaceHeld: // a click on empty canvas
-                selected.Clear();
-                break;
         }
         Redraw();
     }
@@ -1314,7 +1316,7 @@ sealed class Canvas
 
     // MARK: Camera, by hand
 
-    /// Wheel, pinch, dragging the canvas and the zoom keys. You moved the camera yourself, so Esc now goes
+    /// Wheel, pinch, a middle-button or Space drag and the zoom keys. You moved the camera yourself, so Esc now goes
     /// back to 100% where you're looking, not where you were (the Mac's cameraMovedByUser).
     void PanBy(Vec d)
     {
@@ -2132,17 +2134,13 @@ sealed class Canvas
         return false;
     }
 
-    const int SM_SWAPBUTTON = 23;
-
-    /// Lets go of the left button where it was pressed, and presses it again where the pointer is.
-    static void PressAgain()
+    /// Presses the middle button where the pointer is, again (see WM_DESKTOP_MIDDLE).
+    static void PressMiddle()
     {
-        var inputs = new INPUT[2];
-        inputs[0].type = INPUT_MOUSE;
-        inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        inputs[1].type = INPUT_MOUSE;
-        inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-        SendInput(2, inputs, Marshal.SizeOf<INPUT>());
+        var input = new INPUT[1];
+        input[0].type = INPUT_MOUSE;
+        input[0].u.mi.dwFlags = 0x20; // MOUSEEVENTF_MIDDLEDOWN
+        SendInput(1, input, Marshal.SizeOf<INPUT>());
     }
 
     static void TapKey(int vk)
@@ -2388,23 +2386,31 @@ sealed class Canvas
                     (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0, lParam);
                 return 0;
             }
-            case DesktopInput.WM_DESKTOP_DRAG:
+            case DesktopInput.WM_DESKTOP_MIDDLE:
             {
-                // From 100%: a drag that began on empty desktop moves the canvas. Explorer has the
-                // press, so it's let go there and pressed again on the overlay, which then handles
-                // the drag as any other on empty canvas. A press on an icon (now selected) stays
-                // Explorer's, as does Ctrl or Shift + drag (selecting icons), and the other monitors.
+                // From 100%: a middle-button drag from the empty desktop moves the canvas. The hook
+                // kept the press from the desktop, so it's made again on the overlay, which then
+                // handles the drag like any other. Not for the other monitors: no canvas there.
                 if (active || paused || gliding) return 0;
                 var at = new POINT((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
                 if (at.X < monitor.Left || at.X >= monitor.Right || at.Y < monitor.Top || at.Y >= monitor.Bottom) return 0;
-                if (GetSystemMetrics(SM_SWAPBUTTON) != 0 || GetAsyncKeyState(VK_LBUTTON) >= 0 ||
-                    GetAsyncKeyState(VK_CONTROL) < 0 || GetAsyncKeyState(VK_SHIFT) < 0 || !DesktopInput.NothingSelected(at)) return 0;
-                Log.Info("drag on the desktop: moving the canvas from 100%");
+                Log.Info("middle button on the desktop: moving the canvas from 100%");
                 Enter(zoomOut: true, overview: false);
                 // Rising takes a moment: the button may be up by now, and a press then would stick.
-                if (active && GetAsyncKeyState(VK_LBUTTON) < 0) PressAgain();
+                if (active && desktopInput.MiddleHeld) PressMiddle();
                 return 0;
             }
+            case WM_MBUTTONDOWN:
+            {
+                if (!active || gliding || animation != null || drag != null) return 0;
+                drag = new Drag(DragKind.Pan, new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)));
+                SetCapture(overlay.Hwnd);
+                SetCursor(LoadCursor(0, IDC_SIZEALL));
+                return 0;
+            }
+            case 0x208 /* WM_MBUTTONUP */:
+                if (drag?.What == DragKind.Pan) EndDrag(click: false);
+                return 0;
             case WM_SETCURSOR when active && (spaceHeld || drag?.What == DragKind.Pan):
                 SetCursor(LoadCursor(0, IDC_SIZEALL));
                 return 1;

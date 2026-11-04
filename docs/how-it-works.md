@@ -52,7 +52,7 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
 - **Focus** is set directly where Windows allows it; where it doesn't (another app is in front),
   a null key press, then an Alt tap, then `AttachThreadInput`.
 - **The empty desktop** is watched by a low-level mouse hook on its own thread: a click there zooms
-  out, a drag moves the canvas, a scroll starts zooming out from 100%. The hook also notes when buttons go down, so a
+  out, a middle-button drag moves the canvas, a scroll starts zooming out from 100%. The hook also notes when buttons go down, so a
   click can be told from the pointer moving (Windows' own "last input" counts both).
 - **Dialogs** (owned windows with a title bar) keep their place by their owner and move with it;
   Windows doesn't move them. One asking something while you're zoomed out is shown over the canvas.
