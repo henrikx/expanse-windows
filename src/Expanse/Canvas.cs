@@ -1952,6 +1952,7 @@ sealed partial class Canvas
         }
         ReleaseDragIn();
         renameBox.Finish(save: true, byKey: false);
+        HoldOverlayForRepaint();
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
         ShowDialogOverCanvas(0);
@@ -1968,6 +1969,18 @@ sealed partial class Canvas
         if (pendingSync) { pendingSync = false; SyncLive(); }
         ScheduleSave();
         CompleteIdleWaiters();
+    }
+
+    /// How long the overlay stays up after the windows have landed and focus has moved.
+    const int OverlayHoldMs = 50;
+
+    /// A window at its spot, or just brought to the front, can still be painting: dropping the
+    /// overlay straight away shows that for a frame or two.
+    static void HoldOverlayForRepaint()
+    {
+        var start = Stopwatch.GetTimestamp();
+        // DwmFlush can return early (composition paused), so no more than a few of them.
+        for (int frame = 0; frame < 12 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < OverlayHoldMs; frame++) Dwm.DwmFlush();
     }
 
     /// Moves every window to its camera spot (asynchronously: a hung app can't stall us).
