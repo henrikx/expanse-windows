@@ -6,3 +6,4 @@ out/
 .vs/
 .DS_Store
 .vm.env
+AGENTS.md
