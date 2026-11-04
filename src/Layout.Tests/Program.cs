@@ -36,6 +36,8 @@ Nearest("an overlapping window isn't ahead", Direction.Right, [new(-20, 0, 100, 
 foreach (var (v, want) in new[] { (2.5, 3.0), (-2.5, -3.0), (3.5, 4.0), (0.5, 1.0), (2.4, 2.0) })
     Expect($"round {v}", Layout.Round(v) == want, $"want {want}, got {Layout.Round(v)}");
 int byHand = passes;
+GroupTests.Run(Expect);
+int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---
 string? dir = AppContext.BaseDirectory;
@@ -172,6 +174,7 @@ foreach (var (c, i) in root.GetProperty("snap").EnumerateArray().Select((c, i) =
 }
 
 Console.WriteLine($"by hand: {byHand} of 15 (nearest, rounding)");
+Console.WriteLine($"group rules: {groupRules} pass");
 foreach (var (fn, (p, t)) in counts) Console.WriteLine($"{fn,-17} {p,5} of {t,5} match the Swift");
 Console.WriteLine(failures == 0 ? $"all {passes} pass" : $"{failures} FAILED, {passes} pass");
 return failures == 0 ? 0 : 1;
