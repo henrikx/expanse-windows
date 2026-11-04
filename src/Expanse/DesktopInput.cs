@@ -16,9 +16,12 @@ sealed class DesktopInput : IDisposable
 {
     public const uint WM_DESKTOP_CLICK = WM_APP + 4, WM_DESKTOP_WHEEL = WM_APP + 5, WM_DESKTOP_MIDDLE = WM_APP + 20;
 
-    /// The middle button is down after a press kept from the desktop. GetAsyncKeyState can't say:
-    /// it doesn't see a press a hook kept back.
+    /// The middle button is really down. GetAsyncKeyState can't say: it doesn't see a press a hook
+    /// kept back, and it does see the one the canvas makes again (OwnInput), which can land after
+    /// the real release and leave it looking held.
     public volatile bool MiddleHeld;
+    /// Marks the mouse events the canvas sends itself (their dwExtraInfo).
+    public const nint OwnInput = 0x45585031;
     /// Packed into a WM_DESKTOP_WHEEL's wParam with the delta (high word).
     public const int Horizontal = 1, Ctrl = 2, Shift = 4;
 
@@ -73,7 +76,7 @@ sealed class DesktopInput : IDisposable
             var m = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
             Interlocked.Exchange(ref lastMouseEvent, (int)m.time);
             if ((uint)wParam is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN) Interlocked.Exchange(ref lastButtonDown, (int)m.time);
-            if ((uint)wParam == 0x208 /* WM_MBUTTONUP */) MiddleHeld = false;
+            if (m.extra != OwnInput && (uint)wParam is WM_MBUTTONDOWN or 0x208 /* WM_MBUTTONUP */) MiddleHeld = (uint)wParam == WM_MBUTTONDOWN;
         }
         if (code >= 0 && Armed)
         {
@@ -86,7 +89,6 @@ sealed class DesktopInput : IDisposable
                     break;
                 case WM_MBUTTONDOWN:
                     if (!IsDesktop(m.pt)) break;
-                    MiddleHeld = true;
                     PostMessage(overlay, WM_DESKTOP_MIDDLE, 0, Pack(m.pt));
                     return 1; // the desktop doesn't get it
                 case WM_LBUTTONUP:

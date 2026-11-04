@@ -49,6 +49,7 @@ sealed partial class Canvas
     readonly HashSet<CanvasWindow> selected = new();
     RectD? marquee;            // the box being dragged out, view space
     bool spaceHeld;            // Space down, zoomed out: dragging pans
+    bool middleMadeAgain;      // the next middle press is the one kept from the desktop, made again
     /// The origin of the 100% camera you zoomed out from: zoomed out, the real windows are still
     /// where it put them.
     Vec liveOrigin;
@@ -118,6 +119,8 @@ sealed partial class Canvas
         public ResizeEdges Edges;
         public RectD? Required;
         public bool FocusOnClick;
+        /// A pan by the middle button, which ends when the real button is up (see EndPanIfMiddleUp).
+        public bool WatchMiddle;
     }
     nint previousForeground;
     Animation? animation;
@@ -2262,12 +2265,27 @@ sealed partial class Canvas
     }
 
     /// Presses the middle button where the pointer is, again (see WM_DESKTOP_MIDDLE).
-    static void PressMiddle()
+    static void PressMiddle() => SendMiddle(0x20 /* MOUSEEVENTF_MIDDLEDOWN */);
+
+    static void SendMiddle(uint flags)
     {
         var input = new INPUT[1];
         input[0].type = INPUT_MOUSE;
-        input[0].u.mi.dwFlags = 0x20; // MOUSEEVENTF_MIDDLEDOWN
+        input[0].u.mi.dwFlags = flags;
+        input[0].u.mi.dwExtraInfo = DesktopInput.OwnInput;
         SendInput(1, input, Marshal.SizeOf<INPUT>());
+    }
+
+    /// A pan by the middle button whose real button is up (it can be let go just as the press is
+    /// made again on the overlay, and then no release ever comes): it ends, and the press made
+    /// again is taken back.
+    void EndPanIfMiddleUp()
+    {
+        if (drag is not { What: DragKind.Pan, WatchMiddle: true } || desktopInput.MiddleHeld) return;
+        Log.Info("middle button is up: ending the pan");
+        EndDrag(click: false);
+        SendMiddle(0x40 /* MOUSEEVENTF_MIDDLEUP */);
+        SetCursor(LoadCursor(0, IDC_ARROW));
     }
 
     static void TapKey(int vk)
@@ -2413,6 +2431,7 @@ sealed partial class Canvas
                 Save();
                 return 0;
             case WM_TIMER when wParam == HotCornerTimer:
+                EndPanIfMiddleUp();
                 WatchCompositor();
                 desktopInput.Armed = !active && !paused;
                 if (!CompositorSettled) { hotCorner.Disarm(); return 0; }
@@ -2527,13 +2546,22 @@ sealed partial class Canvas
                 Log.Info("middle button on the desktop: moving the canvas from 100%");
                 Enter(zoomOut: true, overview: false);
                 // Rising takes a moment: the button may be up by now, and a press then would stick.
-                if (active && desktopInput.MiddleHeld) PressMiddle();
+                if (active && desktopInput.MiddleHeld)
+                {
+                    middleMadeAgain = true;
+                    PressMiddle();
+                }
                 return 0;
             }
             case WM_MBUTTONDOWN:
             {
                 if (!active || gliding || animation != null || drag != null) return 0;
-                drag = new Drag(DragKind.Pan, new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)));
+                drag = new Drag(DragKind.Pan, new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)))
+                {
+                    // Not if the hook never saw this press (it isn't running): the real release ends it.
+                    WatchMiddle = middleMadeAgain || desktopInput.MiddleHeld,
+                };
+                middleMadeAgain = false;
                 SetCapture(overlay.Hwnd);
                 SetCursor(LoadCursor(0, IDC_SIZEALL));
                 return 0;
