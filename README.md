@@ -1,3 +1,17 @@
+> **This is a fork of [invig/expanse-windows](https://github.com/invig/expanse-windows)**, branched
+> from its v0.2.0. What's different here:
+>
+> - **Groups.** Put windows in named boxes on the canvas. Each virtual desktop has its own.
+> - **A groups panel with search.** It lists every group and its apps with their icons. Start typing
+>   anywhere on the canvas to search group names, app names and window titles.
+> - **Different canvas controls.** Scrolling zooms and stops at 100%, the middle button moves the
+>   canvas, dragging on empty canvas selects windows, and Tidy Up is <kbd>Ctrl</kbd> + <kbd>T</kbd>.
+> - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
+>   hot corners only count on the main screen.
+>
+> The download links below and the built-in updater still point to the original project, so build
+> from source to run this fork. An update from there would replace it.
+
 <p align="center">
   <img src="docs/images/preview.jpg" alt="Expanse for Windows, zoomed out: six windows on one canvas with their names above them, the one under the pointer ringed, and the Desktops panel and minimap in the bottom-right corner" width="900">
 </p>
