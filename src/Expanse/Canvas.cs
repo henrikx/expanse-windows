@@ -1368,16 +1368,11 @@ sealed partial class Canvas
         {
             if (!PressGroup(hitGroup, part, edges, p)) { Redraw(); return; }
         }
-        else if (ctrl || shift)
-        {
-            drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
-            if (!shift) selected.Clear();
-        }
         else
         {
-            selected.Clear();
-            Redraw();
-            return;
+            // Empty canvas: a drag selects, with Shift adding to what's selected. A click just clears.
+            drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
+            if (!shift) selected.Clear();
         }
         SetCapture(overlay.Hwnd);
         Redraw();

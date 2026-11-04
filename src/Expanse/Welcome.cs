@@ -24,7 +24,7 @@ static class Welcome
         ("Wheel  ·  Ctrl + wheel", "Zoom  ·  move up and down"),
         ("Middle-button drag", "Move around the canvas"),
         ("Drag a window", "Move it; it snaps into place"),
-        ("Ctrl + drag", "Select several, then drag or close them together"),
+        ("Drag empty canvas", "Select several, then drag or close them together"),
         ("Ctrl + T", "Tidy up: line up each group, where it is"),
         ("Type", "Search the groups and apps"),
     };

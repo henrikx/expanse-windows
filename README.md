@@ -88,7 +88,8 @@ start it with Windows.
 | Scroll on empty desktop | Start zooming out from 100% |
 | Middle-button drag on empty desktop | Move around the canvas from 100% |
 | Click or drag in the minimap | Move the view there |
-| <kbd>Ctrl</kbd> + drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
+| Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
+| <kbd>Shift</kbd> + drag · <kbd>Ctrl</kbd> or <kbd>Shift</kbd> + drag inside a group's box | Add to the selection · select there instead of moving the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
