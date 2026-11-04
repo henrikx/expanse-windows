@@ -66,7 +66,7 @@ start it with Windows.
 | Rest the pointer in a screen corner, or press <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>`</kbd> | Zoom out to every window (do it again to go back) |
 | Click a window | Glide to it and start using it |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Hop to the next window in that direction |
-| Scroll | Zoom around the pointer, up to 100% |
+| Scroll | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
 | Middle-button drag | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
 | <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |

@@ -80,6 +80,28 @@ public struct Camera
         Origin = new Vec(c.X - anchor.X / s, c.Y - anchor.Y / s);
     }
 
+    /// Zooms out while easing canvas point `focus` towards `middle` (view coords), `pull` of the
+    /// way there (0 to 1). The view only ever moves towards it, and stops once as far out as it goes.
+    public void ZoomOutOnto(double newScale, Vec focus, double pull, Vec middle)
+    {
+        if (!double.IsFinite(newScale)) return;
+        double s = Math.Clamp(newScale, MinScale, MaxScale);
+        if (s >= Scale) return;
+        var c = ToCanvas(middle);
+        Scale = s;
+        Origin = new Vec(c.X + (focus.X - c.X) * pull - middle.X / s, c.Y + (focus.Y - c.Y) * pull - middle.Y / s);
+    }
+
+    /// Part of the way (`e`, 0 to 1) from one camera to another. The zoom changes evenly, and what's
+    /// at view point `anchor` moves in a straight line: if both show the same canvas point there,
+    /// it stays put throughout.
+    public static Camera Between(Camera from, Camera to, double e, Vec anchor)
+    {
+        double s = Math.Exp(Math.Log(from.Scale) + (Math.Log(to.Scale) - Math.Log(from.Scale)) * e);
+        Vec a = from.ToCanvas(anchor), b = to.ToCanvas(anchor);
+        return new Camera(new Vec(a.X + (b.X - a.X) * e - anchor.X / s, a.Y + (b.Y - a.Y) * e - anchor.Y / s), s);
+    }
+
     /// Moves the content by `d` view pixels.
     public void Pan(Vec d) => Origin = new Vec(Origin.X - d.X / Scale, Origin.Y - d.Y / Scale);
 

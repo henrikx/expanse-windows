@@ -133,6 +133,10 @@ sealed partial class Canvas
         public long Start;
         public double Duration;
         public Action? Completion;
+        /// A wheel turn's zoom: the next turn carries on from where it's heading.
+        public bool Wheel;
+        /// The view point it moves about (null: the view's middle).
+        public Vec? Anchor;
         public int Frames;
         public long FirstFrame, LastFrame;
         public double MaxGap, LayoutTotal;
@@ -1490,6 +1494,63 @@ sealed partial class Canvas
         Relayout();
     }
 
+    /// How much of the way to the middle a notch of zooming out brings the spot you pointed at,
+    /// how long each notch glides, and what ends a zoom: a pause, or moving the pointer.
+    const double ZoomOutPull = 0.35, WheelGlide = 0.16, ZoomOutPointerMoved = 8;
+    const long ZoomOutPauseMs = 500;
+
+    /// The canvas point a zoom out is easing to the middle, and the turn before this one.
+    (Vec focus, Vec pointer, long at)? zoomOut;
+
+    /// The middle of the view you can see: beside the groups panel, not under it.
+    Vec VisibleMiddle => new((ViewSize.X - (settings.GroupsPanel ? (GroupTree.Width + GroupTree.Margin) * UiScale : 0)) / 2, ViewSize.Y / 2);
+
+    /// A wheel turn out: the spot under the pointer when the zoom began eases to the middle, so the
+    /// view closes in on where you're looking, each notch gliding on from where the last was heading.
+    void ZoomOutBy(double notches, Vec at)
+    {
+        var target = WheelTarget();
+        long now = Environment.TickCount64;
+        var focus = zoomOut is var (f, pointer, last) && now - last <= ZoomOutPauseMs && pointer.DistanceTo(at) <= ZoomOutPointerMoved
+            ? f : target.ToCanvas(at);
+        zoomOut = (focus, at, now);
+        target.ZoomOutOnto(target.Scale * Math.Pow(1.2, -notches), focus, 1 - Math.Pow(1 - ZoomOutPull, notches), VisibleMiddle);
+        GlideByWheel(target, anchor: null);
+    }
+
+    /// A wheel turn in: the spot under the pointer stays there throughout.
+    void ZoomInBy(double notches, Vec at)
+    {
+        var target = WheelTarget();
+        target.Zoom(target.Scale * Math.Pow(1.2, notches), at);
+        zoomOut = null;
+        GlideByWheel(target, at);
+    }
+
+    /// Where a wheel turn starts from: where the last one is heading.
+    Camera WheelTarget()
+    {
+        if (animation is not { Wheel: true }) CancelAnimation();
+        return animation is { Wheel: true } a ? a.To : camera;
+    }
+
+    void GlideByWheel(Camera target, Vec? anchor)
+    {
+        returnCamera = null;
+        viewPlaced = false;
+        Animate(target, WheelGlide, HoverAtCursor);
+        animation!.Wheel = true;
+        animation.Anchor = anchor;
+    }
+
+    /// A press mustn't wait for a wheel turn's glide: the view stops where it is.
+    void EndWheelGlide()
+    {
+        if (animation is not { Wheel: true }) return;
+        CancelAnimation();
+        Redraw();
+    }
+
     /// The view's middle to canvas point `c`, at the same zoom (the minimap).
     void CentreOn(Vec c)
     {
@@ -1544,8 +1605,8 @@ sealed partial class Canvas
         return r.Y >= -1 && x1 - x0 >= 48 && y1 - y0 >= 48;
     }
 
-    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms around the
-    /// pointer; with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
+    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms in around the
+    /// pointer, and out onto it (see ZoomOutBy); with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
     /// with Shift it pans sideways. `at`: the pointer, in screen coordinates (packed).
     void Wheel(bool horizontal, int delta, bool ctrl, bool shift, nint at)
     {
@@ -1559,7 +1620,19 @@ sealed partial class Canvas
         if (horizontal) PanBy(new Vec(-delta * step, 0));
         else if (shift) PanBy(new Vec(delta * step, 0));
         else if (ctrl) PanBy(new Vec(0, delta * step));
-        else { ZoomBy(Math.Pow(1.2, delta / 120.0), new Vec(screen.X - monitor.Left, screen.Y - monitor.Top)); return; }
+        else
+        {
+            var pointer = new Vec(screen.X - monitor.Left, screen.Y - monitor.Top);
+            // Mid-drag the window stays under the pointer by zooming around it, straight away.
+            if (drag != null)
+            {
+                zoomOut = null;
+                ZoomBy(Math.Pow(1.2, delta / 120.0), pointer);
+            }
+            else if (delta < 0) ZoomOutBy(-delta / 120.0, pointer);
+            else ZoomInBy(delta / 120.0, pointer);
+            return;
+        }
         // A wheel's turns (and a touchpad's) say nothing of when the scroll ends: a pause is the end.
         SetTimer(overlay.Hwnd, ScrollEndTimer, 250, 0);
     }
@@ -2417,10 +2490,7 @@ sealed partial class Canvas
         a.LastFrame = now;
         double t = Math.Min(1, Stopwatch.GetElapsedTime(a.Start, now).TotalSeconds / a.Duration);
         double e = 1 - Math.Pow(1 - t, 3); // ease-out cubic
-        double s = Math.Exp(Lerp(Math.Log(a.From.Scale), Math.Log(a.To.Scale), e));
-        var c0 = a.From.Center(ViewSize);
-        var c1 = a.To.Center(ViewSize);
-        camera = t >= 1 ? a.To : Camera.Centered(new Vec(Lerp(c0.X, c1.X, e), Lerp(c0.Y, c1.Y, e)), s, ViewSize);
+        camera = t >= 1 ? a.To : Camera.Between(a.From, a.To, e, a.Anchor ?? new Vec(ViewSize.X / 2, ViewSize.Y / 2));
         long l0 = Stopwatch.GetTimestamp();
         if (a.Moves != null)
             foreach (var (w, from, to) in a.Moves)
@@ -2561,6 +2631,7 @@ sealed partial class Canvas
             case WM_LBUTTONDOWN:
             {
                 var p = new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
+                EndWheelGlide();
                 if (active && !gliding && animation == null) Press(p, shift: ((int)wParam & MK_SHIFT) != 0, ctrl: ((int)wParam & MK_CONTROL) != 0);
                 return 0;
             }
@@ -2621,6 +2692,7 @@ sealed partial class Canvas
             }
             case WM_MBUTTONDOWN:
             {
+                EndWheelGlide();
                 if (!active || gliding || animation != null || drag != null) return 0;
                 drag = new Drag(DragKind.Pan, new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)))
                 {

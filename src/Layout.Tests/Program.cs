@@ -40,6 +40,7 @@ GroupTests.Run(Expect);
 TreeTests.Run(Expect);
 MoveTests.Run(Expect);
 PerDesktopTests.Run(Expect);
+CameraTests.Run(Expect);
 ScreenTests.Run(Expect);
 int groupRules = passes - byHand;
 
