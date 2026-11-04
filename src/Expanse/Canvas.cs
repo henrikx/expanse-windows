@@ -1041,6 +1041,7 @@ sealed partial class Canvas
             w.Frame = w.Frame with { X = Layout.Round(under.X - (p.X - screen.Left)), Y = Layout.Round(under.Y - (p.Y - screen.Top)) };
             double dx = w.Frame.X - before.X, dy = w.Frame.Y - before.Y;
             foreach (var o in w.Owned) o.Frame = o.Frame with { X = o.Frame.X + dx, Y = o.Frame.Y + dy };
+            PictureMoved(w); // the sync above made its picture at the old frame
             NoteUserMove(w, before);
         }
         BringToFront(w);
