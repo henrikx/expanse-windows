@@ -39,6 +39,13 @@ static class VirtualDesktops
         return (list, current);
     }
 
+    /// The desktops' ids and the current one's (null if unknown).
+    public static (List<Guid> desktops, Guid? current) ReadIds()
+    {
+        var (desktops, current) = Read();
+        return (desktops.Select(d => d.Id).ToList(), current >= 0 ? desktops[current].Id : null);
+    }
+
     /// Goes `steps` desktops right (negative: left), as Win+Ctrl+Right/Left would.
     public static void Move(int steps)
     {

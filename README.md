@@ -100,7 +100,8 @@ start it with Windows.
 
 </details>
 
-**Virtual desktops** each have their windows on the canvas while they're the one you're on. The
+**Virtual desktops** each have their windows and groups on the canvas while they're the one you're
+on, and the groups panel and its search cover just those. The
 **Desktops** panel next to the minimap, at the bottom of the screen, has a tile for each: click
 one to go there (the one you're on goes back to 100%), or use <kbd>Win</kbd> + <kbd>Ctrl</kbd> +
 arrows as usual.

@@ -63,7 +63,8 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   copies hand over through the saved layout without moving anything.
 - **Virtual desktops** are read from where Explorer keeps them in the registry (there's no public
   API); switching presses <kbd>Win</kbd> + <kbd>Ctrl</kbd> + arrows. Windows on other desktops are
-  cloaked, so they leave the canvas and come back to their spots.
+  cloaked, so they leave the canvas and come back to their spots. Groups are kept per desktop, by
+  the desktop's id; the ones of a desktop you remove come to the one you're on.
 - **Monitors.** The canvas is the main monitor's. A window whose centre is on another monitor is left
   alone; moved so its centre is on the main screen, it joins the canvas. A canvas window Expanse
   places partly over there stays on the canvas: only your own moves change where it belongs.

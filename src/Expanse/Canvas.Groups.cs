@@ -18,7 +18,10 @@ sealed class CanvasGroup(long id, string name, RectD box)
 /// something moved. Drawn behind the pictures, so a window in front covers its group's label.
 sealed partial class Canvas
 {
+    /// The groups of the desktop you're on: everything here goes by these alone.
     readonly List<CanvasGroup> groups = new();
+    /// The other desktops'.
+    readonly PerDesktop<CanvasGroup> groupsAway = new();
     long nextGroupId = 1;
     CanvasGroup? hoveredGroup;
     readonly RenameBox renameBox = new();
@@ -29,6 +32,24 @@ sealed partial class Canvas
     const string NewGroupText = "New Group";
     /// How far from a border (view pixels, at a display scale of 1) still grabs it.
     const double BorderGrab = 6;
+
+    /// Groups belong to a virtual desktop, like its windows: those of the desktop you're on come
+    /// out, and the others wait. Explorer says nothing when you switch, so this asks. True if
+    /// they changed.
+    bool FollowDesktop()
+    {
+        var (desktops, current) = VirtualDesktops.ReadIds();
+        var from = groupsAway.Here;
+        if (!groupsAway.Follow(groups, desktops, current))
+            return false;
+        Log.Info($"groups: desktop {from} -> {current}, {groups.Count} here, {groupsAway.Away.Count()} on others");
+        renameBox.Finish(save: true, byKey: false);
+        hoveredGroup = null;
+        treeScroll = 0;
+        treeHighlight = -1;
+        ScheduleSave();
+        return true;
+    }
 
     IReadOnlyList<RectD> OtherBoxes(CanvasGroup g) => groups.Where(o => o != g).Select(o => o.Box).ToList();
 
@@ -62,6 +83,7 @@ sealed partial class Canvas
     /// Back to the rules (see Groups.Settle). `dragStarts`: where the apps just dropped came from.
     void SettleGroups(IReadOnlyDictionary<int, RectD>? dragStarts = null)
     {
+        FollowDesktop();
         if (groups.Count == 0 || holdSettling) return;
         var before = GroupFrames();
         var settled = Groups.Settle(groups.Select(g => g.Box).ToList(), before, dragStarts);
@@ -392,15 +414,29 @@ sealed partial class Canvas
 
     // MARK: Saving
 
-    List<SavedGroup> SavedGroups() => groups.Select(g => new SavedGroup { Name = g.Name, Collapsed = g.Collapsed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H }).ToList();
+    List<SavedGroup> SavedGroups()
+    {
+        static SavedGroup Saved(CanvasGroup g, Guid? desktop) =>
+            new() { Name = g.Name, Desktop = desktop, Collapsed = g.Collapsed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H };
+        return groups.Select(g => Saved(g, groupsAway.Here)).Concat(groupsAway.Away.Select(a => Saved(a.Item, a.Desktop))).ToList();
+    }
 
     /// The groups of a saved layout. One saved before groups existed leaves the ones here alone.
+    /// A group saved before groups had a desktop goes on the one you're on.
     void TakeSavedGroups(SavedLayout? layout)
     {
         if (layout?.Groups is not List<SavedGroup> list) return;
+        var (_, current) = VirtualDesktops.ReadIds();
         groups.Clear();
+        groupsAway.Reset(current);
         hoveredGroup = null;
-        foreach (var s in list) groups.Add(new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)) { Collapsed = s.Collapsed });
+        foreach (var s in list)
+        {
+            var g = new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)) { Collapsed = s.Collapsed };
+            if (current != null && s.Desktop is Guid d && d != current) groupsAway.Put(d, g);
+            else groups.Add(g);
+        }
         othersCollapsed = layout.OthersCollapsed;
+        FollowDesktop(); // one saved on a desktop since removed
     }
 }

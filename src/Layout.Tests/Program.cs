@@ -39,6 +39,7 @@ int byHand = passes;
 GroupTests.Run(Expect);
 TreeTests.Run(Expect);
 MoveTests.Run(Expect);
+PerDesktopTests.Run(Expect);
 ScreenTests.Run(Expect);
 int groupRules = passes - byHand;
 

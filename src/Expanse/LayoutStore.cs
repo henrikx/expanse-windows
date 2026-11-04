@@ -33,6 +33,8 @@ sealed class SavedLayout
 sealed class SavedGroup
 {
     public string Name { get; set; } = "";
+    /// The virtual desktop it's on. Null: saved before groups had one, or the desktop wasn't known.
+    public Guid? Desktop { get; set; }
     public bool Collapsed { get; set; }
     public double X { get; set; }
     public double Y { get; set; }

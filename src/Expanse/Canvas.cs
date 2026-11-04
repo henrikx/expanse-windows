@@ -643,6 +643,7 @@ sealed partial class Canvas
     /// doesn't rework them.
     void FitLayoutToScreen(bool tidy, IReadOnlySet<nint>? rederiving = null, bool rehoming = true)
     {
+        FollowDesktop();
         if (rehoming) RehomeStrays();
         var groupsBefore = GroupFrames();
         var groupMembers = groups.Select(g => Groups.Members(g.Box, groupsBefore)).ToArray();
@@ -2251,7 +2252,7 @@ sealed partial class Canvas
             w.Placed = null;
         }
         foreach (var e in savedPool) LayoutStore.Scale(e, c, r);
-        foreach (var g in groups)
+        foreach (var g in groups.Concat(groupsAway.Away.Select(a => a.Item)))
         {
             var o = P(g.Box.Origin);
             var s = Z(g.Box.Size);
@@ -2513,7 +2514,11 @@ sealed partial class Canvas
                     pictures.SetDesktop(settings.Wallpaper ? monitor : null);
                     Relayout();
                 }
-                if (active && !gliding && animation == null) Redraw(); // the Desktops panel follows desktop changes
+                if (active && !gliding && animation == null)
+                {
+                    FollowDesktop();
+                    Redraw(); // the Desktops panel follows desktop changes
+                }
                 return 0;
             case WM_TIMER when wParam == CloseTimer:
                 KillTimer(overlay.Hwnd, CloseTimer);
