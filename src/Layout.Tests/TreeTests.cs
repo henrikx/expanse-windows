@@ -58,6 +58,14 @@ static class TreeTests
         expect("tree: best: words across both, the app", Best("work code") == 1, $"{Best("work code")}");
         expect("tree: best: nothing found", Best("zzz") == -1, $"{Best("zzz")}");
 
+        // --- Icons ---
+        byte[] alpha = [10, 20, 30, 40, 0, 0, 0, 0];
+        expect("icon: one with alpha is used as it is", IconPixels.Finish(alpha, [0, 0, 0, 0, 0, 0, 0, 0]) == alpha, "");
+        var old = IconPixels.Finish([10, 20, 30, 0, 40, 50, 60, 0], [0, 0, 0, 0, 255, 255, 255, 0]);
+        expect("icon: an old one is opaque where its mask is black, clear elsewhere", old != null && old.SequenceEqual(new byte[] { 10, 20, 30, 255, 0, 0, 0, 0 }), "");
+        expect("icon: nothing showing is no icon", IconPixels.Finish([0, 0, 0, 0], [255, 255, 255, 0]) == null, "");
+        expect("icon: no alpha and no mask is no icon", IconPixels.Finish([1, 2, 3, 0], null) == null, "");
+
         // --- App names ---
         expect("tree: a title the same as the app's name isn't repeated", GroupTree.AppText("Terminal", "Terminal") == "Terminal", GroupTree.AppText("Terminal", "Terminal"));
         expect("tree: no title, just the name", GroupTree.AppText("Notepad", "") == "Notepad", GroupTree.AppText("Notepad", ""));

@@ -563,6 +563,19 @@ sealed class SharedVisualPictures : IPictures
                 double x = r.X + row.Depth * GroupTree.Indent * k;
                 if (row.Expandable)
                     d2d.DrawText(row.Expanded ? "\uE70D" : "\uE76C", glyph, Raw(x, r.Y, x + 24 * k, r.Bottom), muted);
+                if (row.Icon is IconImage icon)
+                {
+                    // In the space a group's arrow has, so names line up.
+                    float ix = (float)Math.Round(x + 4 * k - d.Panel.X), iy = (float)Math.Round(r.Y + (r.H - icon.Size) / 2 - d.Panel.Y);
+                    var pinned = System.Runtime.InteropServices.GCHandle.Alloc(icon.Pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
+                    try
+                    {
+                        using var image = d2d.CreateBitmap(new Vortice.Mathematics.SizeI(icon.Size, icon.Size), pinned.AddrOfPinnedObject(), (uint)(icon.Size * 4),
+                            new BitmapProperties(new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied)));
+                        d2d.DrawBitmap(image, new Vortice.RawRectF(ix, iy, ix + icon.Size, iy + icon.Size), 1, Vortice.Direct2D1.BitmapInterpolationMode.Linear, null);
+                    }
+                    finally { pinned.Free(); }
+                }
                 double right = r.Right - (row.Count.Length > 0 ? 34 : 8) * k;
                 d2d.DrawText(row.Text, row.Heading ? heading : plain, Raw(x + 24 * k, r.Y, right, r.Bottom), ink);
                 if (row.Count.Length > 0) d2d.DrawText(row.Count, count, Raw(right, r.Y, r.Right - 8 * k, r.Bottom), muted);

@@ -84,7 +84,7 @@ interface IPictures : IDisposable
 readonly record struct Label(nint Hwnd, string Text, RectD Picture);
 
 /// The groups panel in view coordinates: see GroupTree.
-readonly record struct TreeRowDrawing(RectD Rect, string Text, int Depth, bool Heading, bool Expandable, bool Expanded, string Count, bool Highlighted);
+readonly record struct TreeRowDrawing(RectD Rect, string Text, int Depth, bool Heading, bool Expandable, bool Expanded, string Count, bool Highlighted, IconImage? Icon);
 readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string Query, IReadOnlyList<TreeRowDrawing> Rows, string Empty, bool Dark)
 {
     public const string Placeholder = "Search groups and apps";

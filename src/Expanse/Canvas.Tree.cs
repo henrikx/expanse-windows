@@ -13,6 +13,7 @@ sealed partial class Canvas
     double treeScroll;
     int treeHover = -1, treeHighlight = -1;
     bool othersCollapsed;
+    readonly AppIcons appIcons = new();
 
     RectD TreePanel => settings.GroupsPanel ? GroupTree.Panel(ViewSize, UiScale) : default;
 
@@ -163,6 +164,7 @@ sealed partial class Canvas
     void ResetTree()
     {
         searchBox.Close();
+        appIcons.Clear();
         treeQuery = "";
         treeHighlight = treeHover = -1;
     }
@@ -177,13 +179,15 @@ sealed partial class Canvas
         double rowHeight = GroupTree.RowHeight * k;
         treeScroll = GroupTree.ClampScroll(treeScroll, rows.Count, rowHeight, list.H);
         var shown = new List<TreeRowDrawing>();
+        int iconSize = (int)Math.Round(GroupTree.IconSize * k);
         for (int i = 0; i < rows.Count; i++)
         {
             var r = GroupTree.RowRect(list, rowHeight, treeScroll, i);
             if (!r.Intersects(list)) continue;
             var row = rows[i];
+            var icon = WindowOf(row) is CanvasWindow w ? appIcons.Get(w, iconSize) : null;
             shown.Add(new TreeRowDrawing(r, row.Text, row.Depth, row.Kind != TreeRowKind.App, row.Expandable, row.Expanded,
-                row.Kind == TreeRowKind.App ? "" : row.Count.ToString(), i == treeHover || i == treeHighlight));
+                row.Kind == TreeRowKind.App ? "" : row.Count.ToString(), i == treeHover || i == treeHighlight, icon));
         }
         string empty = rows.Count > 0 ? "" : TreeHasSearch ? "No matches" : "Nothing on the canvas yet";
         return new TreeDrawing(panel, GroupTree.SearchRect(panel, k), list, treeQuery, shown, empty, dark);

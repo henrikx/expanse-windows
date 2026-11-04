@@ -9,7 +9,7 @@ public readonly record struct TreeRow(TreeRowKind Kind, long Key, string Text, i
 /// where things are. Sizes at a display scale of 1.
 public static class GroupTree
 {
-    public const double Width = 280, Margin = 16, RowHeight = 28, Indent = 16;
+    public const double Width = 280, Margin = 16, RowHeight = 28, Indent = 16, IconSize = 16;
     /// The minimap's height and the gap above it, which the panel stops short of.
     public const double BottomReserve = 148;
     public const string OthersName = "Other apps";
