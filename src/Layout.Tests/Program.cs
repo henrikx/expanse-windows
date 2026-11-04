@@ -37,6 +37,7 @@ foreach (var (v, want) in new[] { (2.5, 3.0), (-2.5, -3.0), (3.5, 4.0), (0.5, 1.
     Expect($"round {v}", Layout.Round(v) == want, $"want {want}, got {Layout.Round(v)}");
 int byHand = passes;
 GroupTests.Run(Expect);
+TreeTests.Run(Expect);
 int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---

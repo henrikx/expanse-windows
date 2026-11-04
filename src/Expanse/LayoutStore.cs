@@ -25,12 +25,15 @@ sealed class SavedLayout
     public List<SavedWindow> Windows { get; set; } = new();
     /// Null in a layout saved before there were groups.
     public List<SavedGroup>? Groups { get; set; }
+    /// The panel's section of apps in no group is closed.
+    public bool OthersCollapsed { get; set; }
 }
 
 /// A group on the canvas (see Groups). Its apps aren't listed: they're the ones inside it.
 sealed class SavedGroup
 {
     public string Name { get; set; } = "";
+    public bool Collapsed { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
     public double W { get; set; }

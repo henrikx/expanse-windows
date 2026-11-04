@@ -62,6 +62,9 @@ interface IPictures : IDisposable
     /// them only if it DrawsDecorations (the overlay does otherwise).
     void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale);
 
+    /// The groups panel, or none. False if this kind can't draw it (the caller draws it on the backdrop).
+    bool SetTreePanel(TreeDrawing? tree, double scale);
+
     /// The minimap (bottom right, zoomed out), or none. False if this kind can't draw it (the
     /// caller draws it on the backdrop instead).
     bool SetMinimap(MinimapDrawing? minimap, double scale);
@@ -79,6 +82,15 @@ interface IPictures : IDisposable
 }
 
 readonly record struct Label(nint Hwnd, string Text, RectD Picture);
+
+/// The groups panel in view coordinates: see GroupTree.
+readonly record struct TreeRowDrawing(RectD Rect, string Text, int Depth, bool Heading, bool Expandable, bool Expanded, string Count, bool Highlighted);
+readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string Query, IReadOnlyList<TreeRowDrawing> Rows, string Empty, bool Dark)
+{
+    public const string Placeholder = "Search groups and apps";
+    public bool Same(TreeDrawing o) =>
+        Panel == o.Panel && Search == o.Search && List == o.List && Query == o.Query && Empty == o.Empty && Dark == o.Dark && Rows.SequenceEqual(o.Rows);
+}
 
 /// A group in view coordinates: its box, its name's pill and the delete button beside it.
 readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Label, RectD Trash, bool Hovered);
@@ -179,6 +191,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public void SetMarks(Marks marks, double scale) { }
     public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale) { }
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
+    public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }
 

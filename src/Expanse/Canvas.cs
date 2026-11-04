@@ -148,6 +148,7 @@ sealed partial class Canvas
         tray = new Tray(overlay.Hwnd);
         updater = new Updater(Post) { OnReady = UpdateReady };
         events = new WinEvents(OnWindowEvent);
+        WireSearchBox();
         desktopInput = new DesktopInput(overlay.Hwnd);
         // Told when the screen locks and the displays sleep (see Handle).
         if (!WTSRegisterSessionNotification(overlay.Hwnd, 0 /* NOTIFY_FOR_THIS_SESSION */))
@@ -453,7 +454,7 @@ sealed partial class Canvas
             FittedWidth = fittedView?.W, FittedHeight = fittedView?.H,
             Windows = windows.Concat(departed.Values.Where(w => IsWindow(w.Hwnd))).Select(LayoutStore.Entry)
                 .Concat(savedPool.Take(60)).ToList(),
-            Groups = SavedGroups(),
+            Groups = SavedGroups(), OthersCollapsed = othersCollapsed,
         };
         string? before = lastSavedJson;
         lastSavedJson = LayoutStore.Save(layout, lastSavedJson);
@@ -1260,7 +1261,9 @@ sealed partial class Canvas
     void Press(Vec p, bool shift, bool ctrl)
     {
         renameBox.Finish(save: true, byKey: false);
+        searchBox.Close();
         if (PressNewGroup(p)) return;
+        if (TreePanel.Contains(p)) { PressTree(p); return; }
         if (desktopsPanel.Panel.Contains(p))
         {
             // The Desktops panel: a tile goes to that desktop (its windows come onto the canvas).
@@ -1472,7 +1475,8 @@ sealed partial class Canvas
     void HoverAtCursor()
     {
         GetCursorPos(out var p);
-        hovered = WindowAt(new Vec(p.X - monitor.Left, p.Y - monitor.Top));
+        var at = new Vec(p.X - monitor.Left, p.Y - monitor.Top);
+        hovered = TreePanel.Contains(at) ? null : WindowAt(at);
     }
 
     double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
@@ -1492,6 +1496,11 @@ sealed partial class Canvas
     void Wheel(bool horizontal, int delta, bool ctrl, bool shift, nint at)
     {
         var screen = new Vec((short)(at & 0xFFFF), (short)((at >> 16) & 0xFFFF));
+        if (TreePanel.Contains(new Vec(screen.X - monitor.Left, screen.Y - monitor.Top)))
+        {
+            if (!horizontal) ScrollTree(delta);
+            return;
+        }
         double step = 0.5 * UiScale; // 60 px a notch at 100%
         if (horizontal) PanBy(new Vec(-delta * step, 0));
         else if (shift) PanBy(new Vec(delta * step, 0));
@@ -1952,6 +1961,7 @@ sealed partial class Canvas
         }
         ReleaseDragIn();
         renameBox.Finish(save: true, byKey: false);
+        ResetTree();
         HoldOverlayForRepaint();
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
@@ -2291,8 +2301,10 @@ sealed partial class Canvas
         if (windows.Count == 0) return Camera.Centered(camera.Center(ViewSize), 0.5, ViewSize);
         var bounds = windows.Skip(1).Aggregate(windows[0].Frame, (b, w) => b.Union(w.Frame));
         bounds = groups.Aggregate(bounds, (b, g) => b.Union(g.Box)).Inset(-80, -80);
-        double s = Math.Min(Math.Min(ViewSize.X / bounds.W, ViewSize.Y / bounds.H), maxScale);
-        return Camera.Centered(bounds.Center, Math.Max(s, Camera.MinScale), ViewSize);
+        // Beside the groups panel, not under it.
+        double reserved = settings.GroupsPanel ? (GroupTree.Width + GroupTree.Margin) * UiScale : 0;
+        double s = Math.Max(Math.Min(Math.Min((ViewSize.X - reserved) / bounds.W, ViewSize.Y / bounds.H), maxScale), Camera.MinScale);
+        return Camera.Centered(new Vec(bounds.MidX + reserved / 2 / s, bounds.MidY), s, ViewSize);
     }
 
     // MARK: Animation
@@ -2556,6 +2568,8 @@ sealed partial class Canvas
                     case VK_A when ctrl: selected.UnionWith(windows); Redraw(); break;
                     case VK_W when ctrl: CloseKey(); break;
                     case VK_T when !ctrl: Tidy(); break;
+                    case VK_F when ctrl: OpenSearch(); break;
+                    case VK_G when !ctrl: ToggleTree(); break;
                     case VK_0 or VK_NUMPAD0 when !ctrl:
                         CancelAnimation();
                         returnCamera = null;
@@ -2637,6 +2651,8 @@ sealed partial class Canvas
         if (!active || gliding || animation != null) return;
         int desk = desktopsPanel.Panel.Contains(p) ? desktopsPanel.TileAt(p) : -1;
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
+        if (TreePanel.Contains(p)) { HoverTree(p); return; }
+        LeaveTree();
         var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) ? null : WindowAt(p);
         HoverGroup(p, w);
         if (w == hovered) return;
@@ -2671,6 +2687,7 @@ sealed partial class Canvas
         pictures.SetMinimap(map, k);
         if (show) desktopsPanel.Refresh();
         pictures.SetDesktops(map is MinimapDrawing m ? desktopsPanel.Update(m.Panel, hoveredDesktop, k, m.Dark) : null, k);
+        pictures.SetTreePanel(settings.GroupsPanel && map is MinimapDrawing panelTheme ? TreeDrawingNow(k, panelTheme.Dark) : null, k);
         pictures.Present();
     }
 
@@ -2813,6 +2830,7 @@ sealed partial class Canvas
             }
             Gdi32.DeleteObject(pink);
         }
+        PaintTree(hdc, k);
         Gdi32.SelectObject(hdc, oldBrush);
         Gdi32.SelectObject(hdc, oldPen);
         Gdi32.SelectObject(hdc, oldFont);

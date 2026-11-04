@@ -71,6 +71,8 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows
   can use it later. Tidy Up and fitting to a screen treat each group as one block. The rename box
   is a popup owned by the overlay, because the visual tree covers the overlay's child windows.
+- **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes. Its
+  rules are in `src/Layout/GroupTree.cs`. The search box is a popup, up only while you type.
 - **Locking and sleep.** While the screen is locked (`WTSRegisterSessionNotification`) or the
   displays are off (`GUID_CONSOLE_DISPLAY_STATE`), window moves aren't followed: a monitor that
   drops out as it sleeps takes its windows with it, and the Mac once had macOS pile every parked

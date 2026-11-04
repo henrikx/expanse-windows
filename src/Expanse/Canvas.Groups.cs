@@ -10,6 +10,8 @@ sealed class CanvasGroup(long id, string name, RectD box)
     public readonly long Id = id;
     public string Name = name;
     public RectD Box = box;
+    /// Closed in the groups panel.
+    public bool Collapsed;
 }
 
 /// Groups zoomed out: making them, the mouse on them, and bringing them back to Groups' rules when
@@ -156,6 +158,7 @@ sealed partial class Canvas
     {
         if (drag != null) return 0;
         if (NewGroupRect(UiScale)?.Contains(p) == true) return LoadCursor(0, IDC_HAND);
+        if (TreePanel.Contains(p)) return treeHover >= 0 ? LoadCursor(0, IDC_HAND) : 0;
         if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || WindowAt(p) != null) return 0;
         if (GroupHitAt(p) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
         return part switch
@@ -389,7 +392,7 @@ sealed partial class Canvas
 
     // MARK: Saving
 
-    List<SavedGroup> SavedGroups() => groups.Select(g => new SavedGroup { Name = g.Name, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H }).ToList();
+    List<SavedGroup> SavedGroups() => groups.Select(g => new SavedGroup { Name = g.Name, Collapsed = g.Collapsed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H }).ToList();
 
     /// The groups of a saved layout. One saved before groups existed leaves the ones here alone.
     void TakeSavedGroups(SavedLayout? layout)
@@ -397,6 +400,7 @@ sealed partial class Canvas
         if (layout?.Groups is not List<SavedGroup> list) return;
         groups.Clear();
         hoveredGroup = null;
-        foreach (var s in list) groups.Add(new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)));
+        foreach (var s in list) groups.Add(new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)) { Collapsed = s.Collapsed });
+        othersCollapsed = layout.OthersCollapsed;
     }
 }

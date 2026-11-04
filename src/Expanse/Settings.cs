@@ -16,6 +16,9 @@ sealed class Settings
     /// HotCorner for the choices; every corner to begin with, as on the Mac).
     public string HotCorner { get; set; } = Expanse.HotCorner.Default;
 
+    /// The groups panel on the right of the canvas (G shows or hides it).
+    public bool GroupsPanel { get; set; } = true;
+
     /// Show Window Names: a label over each picture zoomed out (the app's name; the window's title
     /// too on hover). Off, as on the Mac, where titles can be private.
     public bool ShowNames { get; set; }

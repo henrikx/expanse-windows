@@ -94,6 +94,10 @@ sealed class SharedVisualPictures : IPictures
     readonly Strips groupFill, groupFillHover, groupEdge, groupEdgeHover;
     readonly IDCompositionVisual2 groupLabels, buttonLayer;
     Title? newGroupTitle;
+    readonly IDCompositionVisual2 treeVisual;
+    IDCompositionSurface? treeSurface;
+    (int w, int h) treeSize;
+    TreeDrawing? treeDrawn;
     IDCompositionSurface? trashSurface;
     double trashScale;
     readonly bool failForTesting;
@@ -161,6 +165,8 @@ sealed class SharedVisualPictures : IPictures
         root.AddVisual(minimapVisual, false, null);
         device.CreateVisual(out desktopsVisual);
         root.AddVisual(desktopsVisual, false, null);
+        device.CreateVisual(out treeVisual);
+        root.AddVisual(treeVisual, false, null);
         device.CreateVisual(out buttonLayer);
         root.AddVisual(buttonLayer, false, null);
         device.Commit();
@@ -486,6 +492,93 @@ sealed class SharedVisualPictures : IPictures
             newGroupTitle.Visual.SetOffsetY((float)Math.Round(b.Y));
             buttonLayer.AddVisual(newGroupTitle.Visual, false, null);
         }
+    }
+
+    /// The groups panel, drawn like the minimap: a surface of its own, redrawn only when it changes.
+    public bool SetTreePanel(TreeDrawing? tree, double scale)
+    {
+        if (tree is not TreeDrawing d)
+        {
+            if (treeDrawn != null) { treeVisual.SetContent(null); treeDrawn = null; }
+            return true;
+        }
+        if (treeDrawn is TreeDrawing last && last.Same(d)) return true;
+        int w = (int)Math.Ceiling(d.Panel.W), h = Math.Max(1, (int)Math.Ceiling(d.Panel.H));
+        if (treeSurface == null || treeSize != (w, h))
+        {
+            treeSurface?.Dispose();
+            device.CreateSurface((uint)w, (uint)h, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var created);
+            treeSurface = created;
+            treeSize = (w, h);
+        }
+        float k = (float)scale;
+        System.Drawing.RectangleF Local(RectD r) => new((float)(r.X - d.Panel.X), (float)(r.Y - d.Panel.Y), (float)r.W, (float)r.H);
+        Vortice.RawRectF Raw(double x, double y, double right, double bottom) => new((float)(x - d.Panel.X), (float)(y - d.Panel.Y), (float)(right - d.Panel.X), (float)(bottom - d.Panel.Y));
+        using (var dxgi = treeSurface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
+        using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                   new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                   BitmapOptions.Target | BitmapOptions.CannotDraw)))
+        using (var panel = d2d.CreateSolidColorBrush(d.Dark ? new Color4(0.12f, 0.12f, 0.13f, 0.94f) : new Color4(0.97f, 0.97f, 0.98f, 0.94f)))
+        using (var edge = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.12f) : new Color4(0f, 0f, 0f, 0.1f)))
+        using (var field = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.09f) : new Color4(0f, 0f, 0f, 0.06f)))
+        using (var mark = d2d.CreateSolidColorBrush(new Color4(76 / 255f, 154 / 255f, 1f, d.Dark ? 0.3f : 0.2f)))
+        using (var ink = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.95f) : new Color4(0f, 0f, 0f, 0.85f)))
+        using (var muted = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.55f) : new Color4(0f, 0f, 0f, 0.5f)))
+        using (var heading = dwrite.CreateTextFormat("Segoe UI", FontWeight.SemiBold, Vortice.DirectWrite.FontStyle.Normal, 13 * k))
+        using (var plain = dwrite.CreateTextFormat("Segoe UI", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 13 * k))
+        using (var count = dwrite.CreateTextFormat("Segoe UI", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 12 * k))
+        using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 10 * k))
+        using (var headingCut = dwrite.CreateEllipsisTrimmingSign(heading))
+        using (var plainCut = dwrite.CreateEllipsisTrimmingSign(plain))
+        {
+            foreach (var (format, cut) in new[] { (heading, headingCut), (plain, plainCut) })
+            {
+                format.WordWrapping = WordWrapping.NoWrap;
+                format.ParagraphAlignment = ParagraphAlignment.Center;
+                format.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, cut);
+            }
+            count.TextAlignment = TextAlignment.Trailing;
+            count.ParagraphAlignment = ParagraphAlignment.Center;
+            glyph.TextAlignment = TextAlignment.Center;
+            glyph.ParagraphAlignment = ParagraphAlignment.Center;
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, w, h), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            float corner = 12 * k;
+            var outline = new System.Drawing.RectangleF(0.5f, 0.5f, (float)d.Panel.W - 1, (float)d.Panel.H - 1);
+            d2d.FillRoundedRectangle(new RoundedRectangle(outline, corner, corner), panel);
+            d2d.DrawRoundedRectangle(new RoundedRectangle(outline, corner, corner), edge, 1);
+            float fieldCorner = 6 * k;
+            d2d.FillRoundedRectangle(new RoundedRectangle(Local(d.Search), fieldCorner, fieldCorner), field);
+            d2d.DrawText("\uE721", glyph, Raw(d.Search.X + 2 * k, d.Search.Y, d.Search.X + 26 * k, d.Search.Bottom), muted);
+            var typed = GroupTree.SearchTextRect(d.Search, k);
+            d2d.DrawText(d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, plain, Raw(typed.X, typed.Y, typed.Right, typed.Bottom), d.Query.Length > 0 ? ink : muted);
+            d2d.PushAxisAlignedClip(Raw(d.List.X, d.List.Y, d.List.Right, d.List.Bottom), AntialiasMode.Aliased);
+            foreach (var row in d.Rows)
+            {
+                var r = row.Rect;
+                if (row.Highlighted) d2d.FillRoundedRectangle(new RoundedRectangle(Local(r), fieldCorner, fieldCorner), mark);
+                double x = r.X + row.Depth * GroupTree.Indent * k;
+                if (row.Expandable)
+                    d2d.DrawText(row.Expanded ? "\uE70D" : "\uE76C", glyph, Raw(x, r.Y, x + 24 * k, r.Bottom), muted);
+                double right = r.Right - (row.Count.Length > 0 ? 34 : 8) * k;
+                d2d.DrawText(row.Text, row.Heading ? heading : plain, Raw(x + 24 * k, r.Y, right, r.Bottom), ink);
+                if (row.Count.Length > 0) d2d.DrawText(row.Count, count, Raw(right, r.Y, r.Right - 8 * k, r.Bottom), muted);
+            }
+            if (d.Empty.Length > 0) d2d.DrawText(d.Empty, plain, Raw(d.List.X + 10 * k, d.List.Y, d.List.Right - 10 * k, d.List.Y + GroupTree.RowHeight * k), muted);
+            d2d.PopAxisAlignedClip();
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+        }
+        treeSurface.EndDraw();
+        treeVisual.SetContent(treeSurface);
+        treeVisual.SetOffsetX((float)Math.Round(d.Panel.X));
+        treeVisual.SetOffsetY((float)Math.Round(d.Panel.Y));
+        treeDrawn = d;
+        return true;
     }
 
     /// The delete button: a dark circle with a white garbage can (a glyph every Windows has).
@@ -874,6 +967,8 @@ sealed class SharedVisualPictures : IPictures
         foreach (var v in groupTrash.Values) v.Dispose();
         if (newGroupTitle != null) Dispose(newGroupTitle);
         trashSurface?.Dispose();
+        treeSurface?.Dispose();
+        treeVisual.Dispose();
         groupFill.Dispose();
         groupFillHover.Dispose();
         groupEdge.Dispose();
