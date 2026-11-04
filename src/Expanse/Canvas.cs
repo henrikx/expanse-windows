@@ -275,6 +275,11 @@ sealed partial class Canvas
                         // main screen, nudged as Windows rescaled it.)
                         Log.Info($"window {w} moved to another monitor: off the canvas");
                         elsewhere.Add(h);
+                        // Nothing here may claim it back: a saved spot under its handle (one kept
+                        // since a restart while it was hidden) would put it on the canvas again.
+                        int forgotten = savedPool.RemoveAll(e => e.Hwnd == h);
+                        if (forgotten > 0) Log.Info($"window {w}: forgot {forgotten} saved spots");
+                        departed.Remove(h);
                         continue;
                     }
                     else
