@@ -66,7 +66,8 @@ start it with Windows.
 | Rest the pointer in a screen corner, or press <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>`</kbd> | Zoom out to every window (do it again to go back) |
 | Click a window | Glide to it and start using it |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Hop to the next window in that direction |
-| Scroll, or pinch | Move around the canvas, and zoom |
+| Scroll | Zoom around the pointer, up to 100% |
+| Drag empty canvas | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
 | <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |
 | <kbd>Esc</kbd> | Back to 100% |
@@ -79,13 +80,14 @@ start it with Windows.
 | Do this | To |
 |---|---|
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>C</kbd> | Centre the window you're in |
-| <kbd>Ctrl</kbd> + scroll | Zoom around the pointer |
+| <kbd>Ctrl</kbd> + scroll | Move up and down |
 | <kbd>Shift</kbd> + scroll | Move sideways |
-| <kbd>Space</kbd> + drag | Move around the canvas |
+| <kbd>Space</kbd> + drag | Move around the canvas, starting anywhere |
 | Click empty desktop | Zoom out to every window |
-| Scroll on empty desktop | Start moving around the canvas from 100% |
+| Scroll on empty desktop | Start zooming out from 100% |
+| Drag on empty desktop | Move around the canvas from 100% |
 | Click or drag in the minimap | Move the view there |
-| Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
+| <kbd>Ctrl</kbd> + drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |
 | Arrow keys · <kbd>Return</kbd> | Move the highlight · dive into the highlighted window |

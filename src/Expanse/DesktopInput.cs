@@ -5,7 +5,7 @@ using static Expanse.Native.User32;
 namespace Expanse;
 
 /// The empty desktop, as on the Mac (where Expanse's backdrop is the desktop): a click on it zooms
-/// out, and a scroll or pinch over it starts moving around the canvas from 100%.
+/// out, a drag on it moves the canvas, and a scroll or pinch over it acts on the canvas from 100%.
 ///
 /// A low-level mouse hook sees the clicks and wheel turns. It runs on a thread of its own, so the
 /// pointer never waits on Expanse's UI thread (Windows holds every mouse event until a hook
@@ -13,7 +13,7 @@ namespace Expanse;
 /// (Ctrl+wheel would resize its icons); clicks go through as usual.
 sealed class DesktopInput : IDisposable
 {
-    public const uint WM_DESKTOP_CLICK = WM_APP + 4, WM_DESKTOP_WHEEL = WM_APP + 5;
+    public const uint WM_DESKTOP_CLICK = WM_APP + 4, WM_DESKTOP_WHEEL = WM_APP + 5, WM_DESKTOP_DRAG = WM_APP + 20;
     /// Packed into a WM_DESKTOP_WHEEL's wParam with the delta (high word).
     public const int Horizontal = 1, Ctrl = 2, Shift = 4;
 
@@ -77,6 +77,14 @@ sealed class DesktopInput : IDisposable
                 case WM_LBUTTONDOWN:
                     downAt = m.pt;
                     downOnDesktop = IsDesktop(m.pt);
+                    break;
+                case WM_MOUSEMOVE:
+                    if (downOnDesktop && (Math.Abs(m.pt.X - downAt.X) >= 5 || Math.Abs(m.pt.Y - downAt.Y) >= 5))
+                    {
+                        // Not a click: the canvas decides whether to take the drag from here.
+                        downOnDesktop = false;
+                        PostMessage(overlay, WM_DESKTOP_DRAG, 0, Pack(downAt));
+                    }
                     break;
                 case WM_LBUTTONUP:
                     if (downOnDesktop && Math.Abs(m.pt.X - downAt.X) < 4 && Math.Abs(m.pt.Y - downAt.Y) < 4 && IsDesktop(m.pt))

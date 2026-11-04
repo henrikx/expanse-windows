@@ -59,7 +59,7 @@ public struct Camera
     public Vec Origin;
     public double Scale;
 
-    public const double MinScale = 0.03, MaxScale = 1.5;
+    public const double MinScale = 0.03, MaxScale = 1;
 
     public Camera(Vec origin, double scale) { Origin = origin; Scale = scale; }
 

@@ -21,10 +21,10 @@ static class Welcome
         ("Click", "Dive into a window"),
         ("Ctrl + Alt + ← → ↑ ↓", "Hop to the nearest window that way"),
         ("Ctrl + Alt + C", "Centre the window you're in"),
-        ("Wheel  ·  Ctrl + wheel", "Move around the canvas  ·  zoom"),
-        ("Space + drag", "Hold Space and drag to move around"),
-        ("Drag", "Move windows; they snap into place"),
-        ("Shift + click", "Select several, then drag or close them together"),
+        ("Wheel  ·  Ctrl + wheel", "Zoom  ·  move up and down"),
+        ("Drag the background", "Move around the canvas"),
+        ("Drag a window", "Move it; it snaps into place"),
+        ("Ctrl + drag", "Select several, then drag or close them together"),
         ("T", "Tidy up: line up each group, where it is"),
     };
 

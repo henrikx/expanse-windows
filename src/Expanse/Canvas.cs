@@ -100,7 +100,8 @@ sealed class Canvas
     int hoveredDesktop = -1;
 
     /// A press on the zoomed-out canvas: on a window (it moves, with the rest of the selection if
-    /// it's in one), on empty canvas (a marquee), or with Space held (the canvas pans).
+    /// it's in one), on empty canvas (the canvas pans; with Ctrl or Shift, a marquee), or with Space
+    /// held (the canvas pans).
     sealed class Drag(DragKind what, Vec startPoint)
     {
         public readonly DragKind What = what;
@@ -1169,11 +1170,11 @@ sealed class Canvas
 
     // MARK: The zoomed-out mouse
 
-    /// As on the Mac: with Space held, dragging pans. On a window, its × closes it (or the
-    /// selection it's in), Shift toggles it in the selection, and otherwise it drags (with the
-    /// selection, if it's in one). On empty canvas a marquee selects what it touches, adding to
-    /// the selection with Shift.
-    void Press(Vec p, bool shift)
+    /// With Space held, dragging pans. On a window, its × closes it (or the selection it's in),
+    /// Shift toggles it in the selection, and otherwise it drags (with the selection, if it's in
+    /// one). On empty canvas dragging pans and a click clears the selection; with Ctrl a marquee
+    /// selects what it touches, and with Shift it adds to the selection.
+    void Press(Vec p, bool shift, bool ctrl)
     {
         if (desktopsPanel.Panel.Contains(p))
         {
@@ -1216,11 +1217,12 @@ sealed class Canvas
             foreach (var g in group) BringToFront(g);
             drag = new Drag(DragKind.Windows, p) { Clicked = w, Moving = group.Select(g => (g, g.Frame)).ToList() };
         }
-        else
+        else if (ctrl || shift)
         {
             drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
             if (!shift) selected.Clear();
         }
+        else drag = new Drag(DragKind.Pan, p);
         SetCapture(overlay.Hwnd);
         Redraw();
     }
@@ -1238,6 +1240,7 @@ sealed class Canvas
                 CentreOn(minimap.CanvasPoint(p));
                 return;
             case DragKind.Pan:
+                if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return; // still a click
                 d.Moved = true;
                 PanBy(p - d.Last);
                 d.Last = p;
@@ -1297,6 +1300,9 @@ sealed class Canvas
             case DragKind.Marquee when d.Moved:
                 Log.Info($"marquee: {selected.Count} selected");
                 break;
+            case DragKind.Pan when click && !d.Moved && !spaceHeld: // a click on empty canvas
+                selected.Clear();
+                break;
         }
         Redraw();
     }
@@ -1306,7 +1312,7 @@ sealed class Canvas
 
     // MARK: Camera, by hand
 
-    /// Wheel, pinch, Space-drag and the zoom keys. You moved the camera yourself, so Esc now goes
+    /// Wheel, pinch, dragging the canvas and the zoom keys. You moved the camera yourself, so Esc now goes
     /// back to 100% where you're looking, not where you were (the Mac's cameraMovedByUser).
     void PanBy(Vec d)
     {
@@ -1381,17 +1387,17 @@ sealed class Canvas
         return r.Y >= -1 && x1 - x0 >= 48 && y1 - y0 >= 48;
     }
 
-    /// A wheel turn zoomed out, as on the Mac: the wheel (and a touchpad's two-finger scroll) pans;
-    /// with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it zooms around the pointer;
-    /// Shift turns a plain wheel sideways. `at`: the pointer, in screen coordinates (packed).
+    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms around the
+    /// pointer; with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
+    /// with Shift it pans sideways. `at`: the pointer, in screen coordinates (packed).
     void Wheel(bool horizontal, int delta, bool ctrl, bool shift, nint at)
     {
         var screen = new Vec((short)(at & 0xFFFF), (short)((at >> 16) & 0xFFFF));
         double step = 0.5 * UiScale; // 60 px a notch at 100%
         if (horizontal) PanBy(new Vec(-delta * step, 0));
-        else if (ctrl) { ZoomBy(Math.Pow(1.2, delta / 120.0), new Vec(screen.X - monitor.Left, screen.Y - monitor.Top)); return; }
         else if (shift) PanBy(new Vec(delta * step, 0));
-        else PanBy(new Vec(0, delta * step));
+        else if (ctrl) PanBy(new Vec(0, delta * step));
+        else { ZoomBy(Math.Pow(1.2, delta / 120.0), new Vec(screen.X - monitor.Left, screen.Y - monitor.Top)); return; }
         // A wheel's turns (and a touchpad's) say nothing of when the scroll ends: a pause is the end.
         SetTimer(overlay.Hwnd, ScrollEndTimer, 250, 0);
     }
@@ -2068,6 +2074,19 @@ sealed class Canvas
         return false;
     }
 
+    const int SM_SWAPBUTTON = 23;
+
+    /// Lets go of the left button where it was pressed, and presses it again where the pointer is.
+    static void PressAgain()
+    {
+        var inputs = new INPUT[2];
+        inputs[0].type = INPUT_MOUSE;
+        inputs[0].u.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        inputs[1].type = INPUT_MOUSE;
+        inputs[1].u.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        SendInput(2, inputs, Marshal.SizeOf<INPUT>());
+    }
+
     static void TapKey(int vk)
     {
         var inputs = new INPUT[2];
@@ -2268,7 +2287,7 @@ sealed class Canvas
             case WM_LBUTTONDOWN:
             {
                 var p = new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
-                if (active && !gliding && animation == null) Press(p, shift: ((int)wParam & MK_SHIFT) != 0);
+                if (active && !gliding && animation == null) Press(p, shift: ((int)wParam & MK_SHIFT) != 0, ctrl: ((int)wParam & MK_CONTROL) != 0);
                 return 0;
             }
             case WM_LBUTTONUP:
@@ -2280,9 +2299,7 @@ sealed class Canvas
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL:
             {
-                // As on the Mac: the wheel (and a touchpad's two-finger scroll) pans; with Ctrl (and
-                // a touchpad pinch, which arrives as Ctrl+wheel) it zooms around the pointer. Shift
-                // turns a plain wheel sideways.
+                // See Wheel: the wheel zooms, Ctrl pans up and down, Shift pans sideways.
                 if (!active || gliding || drag != null) return 0;
                 int keys = (int)(wParam & 0xFFFF);
                 Wheel(msg == WM_MOUSEHWHEEL, (short)((wParam >> 16) & 0xFFFF), (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, lParam);
@@ -2299,13 +2316,32 @@ sealed class Canvas
             case DesktopInput.WM_DESKTOP_WHEEL:
             {
                 // From 100%: the overlay rises where you are, and this turn (and the ones after,
-                // which reach the overlay itself) moves around the canvas, as on the Mac.
+                // which reach the overlay itself) acts on the canvas: see Wheel. 100% is as far
+                // in as it goes, so a plain turn up has nothing to do.
                 if (active || paused || gliding) return 0;
-                Log.Info("scroll on the desktop: moving around from 100%");
+                if ((short)((wParam >> 16) & 0xFFFF) > 0 && (wParam & 0xFFFF) == 0) return 0;
+                Log.Info("scroll on the desktop: onto the canvas from 100%");
                 Enter(zoomOut: true, overview: false);
                 int flags = (int)(wParam & 0xFFFF);
                 Wheel((flags & DesktopInput.Horizontal) != 0, (short)((wParam >> 16) & 0xFFFF),
                     (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0, lParam);
+                return 0;
+            }
+            case DesktopInput.WM_DESKTOP_DRAG:
+            {
+                // From 100%: a drag that began on empty desktop moves the canvas. Explorer has the
+                // press, so it's let go there and pressed again on the overlay, which then handles
+                // the drag as any other on empty canvas. A press on an icon (now selected) stays
+                // Explorer's, as does Ctrl or Shift + drag (selecting icons), and the other monitors.
+                if (active || paused || gliding) return 0;
+                var at = new POINT((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
+                if (at.X < monitor.Left || at.X >= monitor.Right || at.Y < monitor.Top || at.Y >= monitor.Bottom) return 0;
+                if (GetSystemMetrics(SM_SWAPBUTTON) != 0 || GetAsyncKeyState(VK_LBUTTON) >= 0 ||
+                    GetAsyncKeyState(VK_CONTROL) < 0 || GetAsyncKeyState(VK_SHIFT) < 0 || !DesktopInput.NothingSelected(at)) return 0;
+                Log.Info("drag on the desktop: moving the canvas from 100%");
+                Enter(zoomOut: true, overview: false);
+                // Rising takes a moment: the button may be up by now, and a press then would stick.
+                if (active && GetAsyncKeyState(VK_LBUTTON) < 0) PressAgain();
                 return 0;
             }
             case WM_SETCURSOR when active && (spaceHeld || drag?.What == DragKind.Pan):
