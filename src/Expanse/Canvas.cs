@@ -923,10 +923,17 @@ sealed partial class Canvas
                 }
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
+                userMoving = hwnd;
+                NoteUserDrag("start", hwnd);
                 if (active && !gliding && elsewhere.Contains(hwnd)) StartDragIn(hwnd);
                 break;
             case EVENT_OBJECT_LOCATIONCHANGE:
             case EVENT_SYSTEM_MOVESIZEEND:
+                if (ev == EVENT_SYSTEM_MOVESIZEEND)
+                {
+                    if (userMoving == hwnd) userMoving = 0;
+                    NoteUserDrag("end", hwnd);
+                }
                 if (ev == EVENT_SYSTEM_MOVESIZEEND && active && elsewhere.Contains(hwnd))
                 {
                     FinishDragIn(hwnd);
@@ -961,6 +968,19 @@ sealed partial class Canvas
     }
 
     void ScheduleSync() => SetTimer(overlay.Hwnd, SyncTimer, 50, 0);
+
+    /// The window you're dragging by its title bar or edge (0: none).
+    nint userMoving;
+
+    /// A drag that's still going: the left button's check is for one whose end we never heard of.
+    bool UserDragging => userMoving != 0 && GetAsyncKeyState(VK_LBUTTON) < 0;
+
+    void NoteUserDrag(string what, nint hwnd)
+    {
+        string kind = windows.Any(w => w.Hwnd == hwnd) ? "canvas" : windows.Any(w => w.Owned.Any(o => o.Hwnd == hwnd)) ? "dialog"
+            : elsewhere.Contains(hwnd) ? "other monitor" : "not tracked";
+        Log.Info($"drag {what}: {CanvasWindow.Describe(hwnd)} ({kind}) at {Dwm.FrameBounds(hwnd)}, maximised {IsZoomed(hwnd)}");
+    }
 
     /// A window being dragged off another monitor while the canvas is up (0: none), and whether
     /// it was always-on-top already.
@@ -1936,6 +1956,12 @@ sealed partial class Canvas
     public void Glide(CanvasWindow w, bool sync = true)
     {
         if (gliding) return;
+        // Going anywhere now would pull the window you're dragging out of your hand.
+        if (UserDragging)
+        {
+            Log.Info($"not gliding to {w}: a window is being dragged");
+            return;
+        }
         viewPlaced = false;
         if (active) { Exit(w); return; }
         Enter(zoomOut: false, sync);
