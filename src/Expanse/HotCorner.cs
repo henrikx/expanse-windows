@@ -39,7 +39,9 @@ sealed class HotCorner
         if (corner == "off" || !GetCursorPos(out var p)) return false;
         bool left = p.X <= screen.Left + Tolerance, right = p.X >= screen.Right - 1 - Tolerance;
         bool top = p.Y <= screen.Top + Tolerance, bottom = p.Y >= screen.Bottom - 1 - Tolerance;
-        bool inCorner = corner switch
+        // On the screen itself: past its edges the pointer is on another monitor, not in its corner.
+        bool onScreen = p.X >= screen.Left && p.X < screen.Right && p.Y >= screen.Top && p.Y < screen.Bottom;
+        bool inCorner = onScreen && corner switch
         {
             "all" => (top || bottom) && (left || right),
             "topLeft" => top && left,
