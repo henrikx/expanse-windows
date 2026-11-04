@@ -64,8 +64,9 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
 - **Virtual desktops** are read from where Explorer keeps them in the registry (there's no public
   API); switching presses <kbd>Win</kbd> + <kbd>Ctrl</kbd> + arrows. Windows on other desktops are
   cloaked, so they leave the canvas and come back to their spots.
-- **Monitors.** The canvas is the main monitor's. A window only on another monitor is left alone;
-  one moved onto the main screen joins the canvas.
+- **Monitors.** The canvas is the main monitor's. A window whose centre is on another monitor is left
+  alone; moved so its centre is on the main screen, it joins the canvas. A canvas window Expanse
+  places partly over there stays on the canvas: only your own moves change where it belongs.
 - **Groups** are boxes in canvas space, drawn behind the pictures. Membership is never stored: an
   app whose centre is inside a box is in it. The rules are plain geometry in `src/Layout/Groups.cs`,
   tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows

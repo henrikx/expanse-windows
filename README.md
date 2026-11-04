@@ -112,7 +112,8 @@ move one out of view, and maximises it again when you come back to it.
 ("Save changes?") shows over the canvas.
 
 **Other monitors** are yours. The canvas is the main monitor's, as on the Mac, and windows on the
-others are left alone; drag one onto the main screen and it joins the canvas where you drop it.
+others are left alone. A window's centre decides: drag it across the edge and it joins or leaves
+the canvas, even if part of it still reaches the other screen.
 
 **Groups** are named boxes on the canvas. An app whose centre is inside a box is in that group, so
 dragging one in adds it and dragging it out removes it, and the box grows to fit. Boxes never

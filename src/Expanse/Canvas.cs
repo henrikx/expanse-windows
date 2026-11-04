@@ -200,11 +200,11 @@ sealed partial class Canvas
             if (!known.TryGetValue(h, out var w))
             {
                 if (h == draggingIn) continue; // it joins where it's dropped (see FinishDragIn)
-                // A window that turns up on another monitor is left alone (the Mac takes on only
+                // A window whose centre is on another monitor is left alone (the Mac takes on only
                 // windows on its screen), unless it's one Expanse had: minimised, or parked by the
                 // Expanse that handed over (saved by its handle). One off every screen is taken on:
                 // left alone it would be out of reach.
-                if (OnOtherMonitorOnly(Dwm.FrameBounds(h)) && !departed.ContainsKey(h) && !savedPool.Any(e => e.Hwnd == h))
+                if (Screens.IsElsewhere(Dwm.FrameBounds(h).ToRectD(), monitor.ToRectD(), OtherMonitorRects) && !departed.ContainsKey(h) && !savedPool.Any(e => e.Hwnd == h))
                 {
                     if (elsewhere.Add(h)) Log.Info($"window {CanvasWindow.Describe(h)} is on another monitor: left alone");
                     continue;
@@ -268,11 +268,12 @@ sealed partial class Canvas
                         w.Frame = w.Frame with { W = f.Width, H = f.Height };
                         w.Placed = null;
                     }
-                    else if (OnOtherMonitorOnly(f))
+                    else if (OnOtherMonitorOnly(f) || (h == crossingWindow && Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects)))
                     {
                         // You moved it onto another monitor: it's yours there, off the canvas, until
-                        // you bring it back. (Off every screen it's still ours: one parked off the
-                        // main screen, nudged as Windows rescaled it.)
+                        // you bring it back. Dragged across, its centre decides, or a window too wide
+                        // for that monitor could never leave (see crossingWindow). (Off every screen
+                        // it's still ours: one parked off the main screen, nudged as Windows rescaled it.)
                         Log.Info($"window {w} moved to another monitor: off the canvas");
                         elsewhere.Add(h);
                         // Nothing here may claim it back: a saved spot under its handle (one kept
@@ -929,6 +930,7 @@ sealed partial class Canvas
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
                 userMoving = hwnd;
+                crossingWindow = monitor.ToRectD().Contains(Dwm.FrameBounds(hwnd).ToRectD().Center) ? hwnd : 0;
                 NoteUserDrag("start", hwnd);
                 if (active && !gliding && elsewhere.Contains(hwnd)) StartDragIn(hwnd);
                 break;
@@ -976,6 +978,11 @@ sealed partial class Canvas
 
     /// The window you're dragging by its title bar or edge (0: none).
     nint userMoving;
+    /// That window, if the drag began with its centre on the main screen: only this can take a
+    /// canvas window off the canvas by its centre. Expanse's own moves aren't drags, and it may put
+    /// a window mostly on another monitor, which then stays on the canvas even if you grab it.
+    /// Kept until the sync after the drag ends has looked at it.
+    nint crossingWindow;
 
     /// A drag that's still going: the left button's check is for one whose end we never heard of.
     bool UserDragging => userMoving != 0 && GetAsyncKeyState(VK_LBUTTON) < 0;
@@ -1052,6 +1059,7 @@ sealed partial class Canvas
         if (gliding) { pendingSync = true; return; }
         bool wasActive = active;
         var (added, removed) = Sync();
+        if (userMoving == 0) crossingWindow = 0;
         foreach (var w in added) Arrive(w);
         shownRecently.Clear();
         userSized.Clear();
@@ -2149,6 +2157,8 @@ sealed partial class Canvas
     }
 
     /// On another monitor and not on the main screen at all.
+    List<RectD> OtherMonitorRects => otherMonitors.Select(m => m.ToRectD()).ToList();
+
     bool OnOtherMonitorOnly(RECT f) => !OnMainScreen(f) && otherMonitors.Any(m => Overlaps(f, m));
 
     static bool Overlaps(RECT a, RECT b) => a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom;
