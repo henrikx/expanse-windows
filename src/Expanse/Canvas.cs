@@ -189,6 +189,7 @@ sealed class Canvas
             nint h = found[i];
             if (!known.TryGetValue(h, out var w))
             {
+                if (h == draggingIn) continue; // it joins where it's dropped (see FinishDragIn)
                 // A window that turns up on another monitor is left alone (the Mac takes on only
                 // windows on its screen), unless it's one Expanse had: minimised, or parked by the
                 // Expanse that handed over (saved by its handle). One off every screen is taken on:
@@ -905,8 +906,16 @@ sealed class Canvas
                     if (active && !gliding) Redraw();
                 }
                 break;
+            case EVENT_SYSTEM_MOVESIZESTART:
+                if (active && !gliding && elsewhere.Contains(hwnd)) StartDragIn(hwnd);
+                break;
             case EVENT_OBJECT_LOCATIONCHANGE:
             case EVENT_SYSTEM_MOVESIZEEND:
+                if (ev == EVENT_SYSTEM_MOVESIZEEND && active && elsewhere.Contains(hwnd))
+                {
+                    FinishDragIn(hwnd);
+                    break;
+                }
                 // Zoomed out or gliding, windows move because we move them.
                 if (known && !active)
                 {
@@ -914,7 +923,7 @@ sealed class Canvas
                     ScheduleSync();
                 }
                 // One on another monitor may be coming onto the main screen.
-                else if (!active && elsewhere.Contains(hwnd)) ScheduleSync();
+                else if (hwnd != draggingIn && elsewhere.Contains(hwnd)) ScheduleSync();
                 break;
             case EVENT_OBJECT_SHOW:
             case EVENT_OBJECT_UNCLOAKED:
@@ -936,6 +945,61 @@ sealed class Canvas
     }
 
     void ScheduleSync() => SetTimer(overlay.Hwnd, SyncTimer, 50, 0);
+
+    /// A window being dragged off another monitor while the canvas is up (0: none), and whether
+    /// it was always-on-top already.
+    nint draggingIn;
+    bool draggingInWasTopmost;
+
+    /// The overlay is always-on-top and would hide a real window dragged onto the main screen, so
+    /// the window goes above it for as long as the drag lasts.
+    void StartDragIn(nint hwnd)
+    {
+        draggingIn = hwnd;
+        draggingInWasTopmost = (ExStyle(hwnd) & WS_EX_TOPMOST) != 0;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        Log.Info($"drag in: {CanvasWindow.Describe(hwnd)} above the overlay");
+    }
+
+    void ReleaseDragIn()
+    {
+        if (draggingIn == 0) return;
+        if (!draggingInWasTopmost && IsWindow(draggingIn))
+            SetWindowPos(draggingIn, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        draggingIn = 0;
+    }
+
+    /// The drag ended with the canvas up. Dropped on the main screen, the window joins the canvas
+    /// with the same point of it under the pointer, and the keyboard goes back to the canvas.
+    /// Dropped elsewhere it stays off the canvas. The real window follows at the hand-back.
+    void FinishDragIn(nint hwnd)
+    {
+        ReleaseDragIn();
+        if (gliding) { pendingSync = true; return; }
+        SyncLive();
+        if (windows.FirstOrDefault(x => x.Hwnd == hwnd) is not CanvasWindow w)
+        {
+            Log.Info($"drag in: {CanvasWindow.Describe(hwnd)} stayed on its monitor");
+            return;
+        }
+        GetCursorPos(out var p);
+        if (p.X >= monitor.Left && p.X < monitor.Right && p.Y >= monitor.Top && p.Y < monitor.Bottom)
+        {
+            var screen = w.ReadScreenFrame();
+            var before = w.Frame.Origin;
+            var under = camera.ToCanvas(new Vec(p.X - monitor.Left, p.Y - monitor.Top));
+            w.Frame = w.Frame with { X = Layout.Round(under.X - (p.X - screen.Left)), Y = Layout.Round(under.Y - (p.Y - screen.Top)) };
+            double dx = w.Frame.X - before.X, dy = w.Frame.Y - before.Y;
+            foreach (var o in w.Owned) o.Frame = o.Frame with { X = o.Frame.X + dx, Y = o.Frame.Y + dy };
+            NoteUserMove(w, before);
+        }
+        BringToFront(w);
+        Relayout();
+        lastOverlayFocus = Focus(overlay.Hwnd);
+        HoverAtCursor();
+        ScheduleSave();
+        Log.Info($"drag in: {w} joined the canvas at {w.Frame}");
+    }
 
     /// Sync, and zoomed out, pictures for windows that came and none for ones that went.
     void SyncLive()
@@ -1854,6 +1918,7 @@ sealed class Canvas
             lastFocusedWindow = target.Hwnd;
             Log.Info($"focus {lastFocus}");
         }
+        ReleaseDragIn();
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
         ShowDialogOverCanvas(0);
