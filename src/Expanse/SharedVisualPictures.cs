@@ -89,6 +89,13 @@ sealed class SharedVisualPictures : IPictures
     readonly Dictionary<double, IDWriteTextFormat> fonts = new();
     readonly Dictionary<nint, Picture> pictures = new();
     readonly Dictionary<nint, Title> titleVisuals = new();
+    readonly Dictionary<long, Title> groupTitles = new();
+    readonly Dictionary<long, IDCompositionVisual2> groupTrash = new();
+    readonly Strips groupFill, groupFillHover, groupEdge, groupEdgeHover;
+    readonly IDCompositionVisual2 groupLabels, buttonLayer;
+    Title? newGroupTitle;
+    IDCompositionSurface? trashSurface;
+    double trashScale;
     readonly bool failForTesting;
     (double x, double y, double s)? lastCamera;
     bool commitFailed;
@@ -135,6 +142,13 @@ sealed class SharedVisualPictures : IPictures
         target.SetRoot(root);
         device.CreateVisual(out desktop);
         root.AddVisual(desktop, false, null);
+        // Groups: over the desktop, under the pictures, so a preview is never tinted.
+        groupFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.08f);
+        groupFillHover = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.14f);
+        groupEdge = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.5f);
+        groupEdgeHover = new Strips(this, 76 / 255f, 154 / 255f, 1f, 1f);
+        device.CreateVisual(out groupLabels);
+        root.AddVisual(groupLabels, false, null);
         device.CreateVisual(out canvas);
         canvas.SetBitmapInterpolationMode(BitmapInterpolationMode.Linear);
         root.AddVisual(canvas, false, null);
@@ -147,6 +161,8 @@ sealed class SharedVisualPictures : IPictures
         root.AddVisual(minimapVisual, false, null);
         device.CreateVisual(out desktopsVisual);
         root.AddVisual(desktopsVisual, false, null);
+        device.CreateVisual(out buttonLayer);
+        root.AddVisual(buttonLayer, false, null);
         device.Commit();
         Log.Info($"pictures: shared visuals (D3D11 {driver})");
     }
@@ -414,6 +430,94 @@ sealed class SharedVisualPictures : IPictures
                 layer.Container.AddVisual(layer.Close, false, null);
             }
         }
+    }
+
+    /// Each group's tinted box and border, its name and delete button; the New Group button.
+    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale)
+    {
+        double thin = Math.Max(1, Math.Round(scale));
+        var edges = new List<RectD>();
+        var hoverEdges = new List<RectD>();
+        foreach (var g in groups) Outline(g.Hovered ? hoverEdges : edges, g.Box, thin);
+        groupFill.Set(groups.Where(g => !g.Hovered).Select(g => g.Box).ToList());
+        groupFillHover.Set(groups.Where(g => g.Hovered).Select(g => g.Box).ToList());
+        groupEdge.Set(edges);
+        groupEdgeHover.Set(hoverEdges);
+        groupLabels.RemoveAllVisuals();
+        if (groups.Count > 0 && (trashSurface == null || trashScale != scale)) DrawTrash(groups[0].Trash.H, scale);
+        foreach (var g in groups)
+        {
+            if (!groupTitles.TryGetValue(g.Id, out var t))
+            {
+                device.CreateVisual(out var v);
+                groupTitles[g.Id] = t = new Title(v);
+                device.CreateVisual(out var can);
+                groupTrash[g.Id] = can;
+            }
+            if (t.Text != g.Name || t.Scale != scale) Draw(t, g.Name, scale);
+            t.Visual.SetOffsetX((float)Math.Round(g.Label.X));
+            t.Visual.SetOffsetY((float)Math.Round(g.Label.Y));
+            t.Visual.SetClip(new Vortice.RawRectF(0, 0, Math.Min(t.W, (float)g.Label.W), t.H));
+            groupLabels.AddVisual(t.Visual, false, null);
+            var trash = groupTrash[g.Id];
+            trash.SetContent(trashSurface);
+            trash.SetOffsetX((float)Math.Round(g.Trash.X));
+            trash.SetOffsetY((float)Math.Round(g.Trash.Y));
+            groupLabels.AddVisual(trash, false, null);
+        }
+        // Groups out of view or deleted: their labels are made again when wanted.
+        foreach (long id in groupTitles.Keys.Where(id => groups.All(g => g.Id != id)).ToList())
+        {
+            groupTitles.Remove(id, out var gone);
+            Dispose(gone!);
+            groupTrash.Remove(id, out var can);
+            can!.Dispose();
+        }
+        buttonLayer.RemoveAllVisuals();
+        if (newGroupButton is RectD b)
+        {
+            if (newGroupTitle == null)
+            {
+                device.CreateVisual(out var v);
+                newGroupTitle = new Title(v);
+            }
+            if (newGroupTitle.Text != buttonText || newGroupTitle.Scale != scale) Draw(newGroupTitle, buttonText, scale);
+            newGroupTitle.Visual.SetOffsetX((float)Math.Round(b.X));
+            newGroupTitle.Visual.SetOffsetY((float)Math.Round(b.Y));
+            buttonLayer.AddVisual(newGroupTitle.Visual, false, null);
+        }
+    }
+
+    /// The delete button: a dark circle with a white garbage can (a glyph every Windows has).
+    void DrawTrash(double height, double scale)
+    {
+        float size = (float)Math.Round(height);
+        device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
+        using (var dxgi = surface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
+        using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                   new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                   BitmapOptions.Target | BitmapOptions.CannotDraw)))
+        using (var dark = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
+        using (var white = d2d.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, 1f)))
+        using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(12 * scale)))
+        {
+            glyph.TextAlignment = TextAlignment.Center;
+            glyph.ParagraphAlignment = ParagraphAlignment.Center;
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            d2d.FillEllipse(new Ellipse(new Vector2(size / 2, size / 2), size / 2, size / 2), dark);
+            d2d.DrawText("\uE74D", glyph, new Vortice.RawRectF(0, 0, size, size), white);
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+        }
+        surface.EndDraw();
+        trashSurface?.Dispose();
+        trashSurface = surface;
+        trashScale = scale;
     }
 
     /// Four strips `t` thick along the inside of `o`.
@@ -766,6 +870,16 @@ sealed class SharedVisualPictures : IPictures
         Detach();
         foreach (var t in titleVisuals.Values) Dispose(t);
         titleVisuals.Clear();
+        foreach (var t in groupTitles.Values) Dispose(t);
+        foreach (var v in groupTrash.Values) v.Dispose();
+        if (newGroupTitle != null) Dispose(newGroupTitle);
+        trashSurface?.Dispose();
+        groupFill.Dispose();
+        groupFillHover.Dispose();
+        groupEdge.Dispose();
+        groupEdgeHover.Dispose();
+        groupLabels.Dispose();
+        buttonLayer.Dispose();
         accent.Dispose();
         marqueeFill.Dispose();
         guides.Dispose();

@@ -285,6 +285,9 @@ public static class User32
     [DllImport(Dll, EntryPoint = "SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(nint hwnd, int index, nint value);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern int GetWindowTextLength(nint hwnd);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern int GetWindowText(nint hwnd, StringBuilder sb, int max);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetWindowText(nint hwnd, string text);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint CallWindowProc(nint proc, nint hwnd, uint msg, nint wParam, nint lParam);
+    [DllImport(Dll)] public static extern uint GetDoubleClickTime();
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern int GetClassName(nint hwnd, StringBuilder sb, int max);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool GetWindowRect(nint hwnd, out RECT r);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint FindWindow(string? className, string? title);
@@ -349,7 +352,7 @@ public static class User32
     public const int MK_SHIFT = 0x4, VK_SPACE = 0x20, VK_A = 0x41, VK_W = 0x57, VK_0 = 0x30, VK_1 = 0x31,
         VK_NUMPAD0 = 0x60, VK_NUMPAD1 = 0x61, VK_ADD = 0x6B, VK_SUBTRACT = 0x6D, VK_OEM_PLUS = 0xBB, VK_OEM_MINUS = 0xBD;
     public const uint WM_KEYUP = 0x101, WM_MOUSEHWHEEL = 0x20E;
-    public const int IDC_SIZEALL = 32646;
+    public const int IDC_SIZEALL = 32646, IDC_SIZENWSE = 32642, IDC_SIZENESW = 32643, IDC_SIZEWE = 32644, IDC_SIZENS = 32645;
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern short GetKeyState(int vk);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool IsWindowEnabled(nint hwnd);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetCursorPos(int x, int y);

@@ -43,6 +43,16 @@ sealed class CanvasWindow
     public bool Maximised, RestoredByUs;
     public RECT? NormalRect;
 
+    /// The size it would restore to, by the window's own placement (it's the same at any spot).
+    public SizeD NormalSize
+    {
+        get
+        {
+            var n = NormalRect ?? Placement().rcNormalPosition;
+            return new SizeD(n.Width, n.Height);
+        }
+    }
+
     /// Restores a maximised window to an ordinary one of the same size in the same place, so it
     /// can be moved. `work` is the work area (WINDOWPLACEMENT is relative to it).
     public void RestoreForMoving(RECT work)

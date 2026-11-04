@@ -14,7 +14,7 @@ namespace Expanse;
 /// every window as a live picture from DWM (see IPictures), laid out by the camera. Clicking one animates the
 /// camera to it at 100%, then the real windows move once, it gets focus and the overlay drops.
 /// Timings and the camera maths follow the Mac app (CanvasController.swift).
-sealed class Canvas
+sealed partial class Canvas
 {
     readonly Overlay overlay;
     IPictures pictures;
@@ -94,7 +94,7 @@ sealed class Canvas
     /// their new size is the size you chose.
     readonly HashSet<nint> userSized = new();
 
-    enum DragKind { Windows, Marquee, Pan, Minimap }
+    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize }
     readonly Minimap minimap = new();
     readonly DesktopsPanel desktopsPanel = new();
     int hoveredDesktop = -1;
@@ -112,6 +112,12 @@ sealed class Canvas
         /// A marquee keeps what was selected before it (with Shift).
         public HashSet<CanvasWindow> Base = new();
         public bool Moved;
+        /// A group's box or border being dragged (see DragGroup).
+        public CanvasGroup? Group;
+        public RectD StartBox;
+        public ResizeEdges Edges;
+        public RectD? Required;
+        public bool FocusOnClick;
     }
     nint previousForeground;
     Animation? animation;
@@ -392,6 +398,7 @@ sealed class Canvas
         // Saved windows go back where you last saw them, moved only if this screen differs.
         if (fittedView == null && saved?.FittedWidth is double fw && saved.FittedHeight is double fh) fittedView = new SizeD(fw, fh);
         savedPool = saved?.Windows.ToList() ?? new();
+        TakeSavedGroups(saved);
         if (saved != null)
         {
             camera = Camera.Centered(new Vec(saved.CenterX, saved.CenterY), 1, ViewSize);
@@ -446,6 +453,7 @@ sealed class Canvas
             FittedWidth = fittedView?.W, FittedHeight = fittedView?.H,
             Windows = windows.Concat(departed.Values.Where(w => IsWindow(w.Hwnd))).Select(LayoutStore.Entry)
                 .Concat(savedPool.Take(60)).ToList(),
+            Groups = SavedGroups(),
         };
         string? before = lastSavedJson;
         lastSavedJson = LayoutStore.Save(layout, lastSavedJson);
@@ -610,6 +618,8 @@ sealed class Canvas
     void FitLayoutToScreen(bool tidy, IReadOnlySet<nint>? rederiving = null, bool rehoming = true)
     {
         if (rehoming) RehomeStrays();
+        var groupsBefore = GroupFrames();
+        var groupMembers = groups.Select(g => Groups.Members(g.Box, groupsBefore)).ToArray();
         var view = WorkSize;
         var home = windows.Select(w =>
         {
@@ -619,7 +629,8 @@ sealed class Canvas
         }).ToArray();
         if (tidy)
         {
-            Layout.TidyUp(home);
+            if (groups.Count > 0) TidyHome(home, groupMembers);
+            else Layout.TidyUp(home);
             for (int i = 0; i < windows.Count; i++) windows[i].Home = new Vec(Layout.Round(home[i].X), Layout.Round(home[i].Y));
         }
         // Maximised windows are the size Windows gives them (see Place).
@@ -664,6 +675,7 @@ sealed class Canvas
         // overlapping in the home layout stay that way (pushing them apart would push everything
         // below and to the right too, and the move would stick when you're back on the big screen).
         Layout.Separate(frames, Layout.Gap, onlyOverlaps: true, keep: Layout.OverlappingPairs(home));
+        if (groups.Count > 0) GroupsAfterFit(groupsBefore, frames, groupMembers, refit: tidy);
         for (int i = 0; i < windows.Count; i++) windows[i].FitPush = new Vec(frames[i].X - origins[i].X, frames[i].Y - origins[i].Y);
         fittedView = view;
         int moved = 0;
@@ -976,7 +988,9 @@ sealed class Canvas
     {
         ReleaseDragIn();
         if (gliding) { pendingSync = true; return; }
+        holdSettling = true; // groups go by where it's dropped, worked out below
         SyncLive();
+        holdSettling = false;
         if (windows.FirstOrDefault(x => x.Hwnd == hwnd) is not CanvasWindow w)
         {
             Log.Info($"drag in: {CanvasWindow.Describe(hwnd)} stayed on its monitor");
@@ -994,6 +1008,7 @@ sealed class Canvas
             NoteUserMove(w, before);
         }
         BringToFront(w);
+        SettleGroups();
         Relayout();
         lastOverlayFocus = Focus(overlay.Hwnd);
         HoverAtCursor();
@@ -1023,6 +1038,7 @@ sealed class Canvas
         }
         foreach (var o in ownedLeft) pictures.Remove(o);
         foreach (var w in added) foreach (var x in w.WithOwned()) pictures.Add(x);
+        if (added.Count > 0) SettleGroups();
         // A dialog opening brings its window to the front, as it does at 100%.
         foreach (var o in ownedArrived.Where(o => !added.Contains(o.Owner!)))
         {
@@ -1226,6 +1242,7 @@ sealed class Canvas
                 if ((e.PW ?? e.W) is double pw && (e.PH ?? e.H) is double ph && pw > 0) w.Preferred = new SizeD(pw, ph);
                 restored++;
             }
+            TakeSavedGroups(layout);
             if (sameScreen) fittedView = view;
             // The snapshot's home spots as they are: re-homing works them out from where windows
             // are now, which is what the restore is replacing.
@@ -1242,6 +1259,8 @@ sealed class Canvas
     /// touches, and with Shift it adds to the selection. The middle button pans: see Handle.
     void Press(Vec p, bool shift, bool ctrl)
     {
+        renameBox.Finish(save: true, byKey: false);
+        if (PressNewGroup(p)) return;
         if (desktopsPanel.Panel.Contains(p))
         {
             // The Desktops panel: a tile goes to that desktop (its windows come onto the canvas).
@@ -1283,6 +1302,10 @@ sealed class Canvas
             foreach (var g in group) BringToFront(g);
             drag = new Drag(DragKind.Windows, p) { Clicked = w, Moving = group.Select(g => (g, g.Frame)).ToList() };
         }
+        else if (!ctrl && !shift && GroupHitAt(p) is (CanvasGroup hitGroup, GroupPart part, ResizeEdges edges))
+        {
+            if (!PressGroup(hitGroup, part, edges, p)) { Redraw(); return; }
+        }
         else if (ctrl || shift)
         {
             drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
@@ -1309,6 +1332,9 @@ sealed class Canvas
             case DragKind.Minimap:
                 d.Moved = true;
                 CentreOn(minimap.CanvasPoint(p));
+                return;
+            case DragKind.GroupMove or DragKind.GroupResize:
+                DragGroup(d, p, snap);
                 return;
             case DragKind.Pan:
                 if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return; // still a click
@@ -1361,7 +1387,12 @@ sealed class Canvas
                 Log.Info(d.Moving.Count == 1 ? $"dragged {d.Clicked} to {d.Clicked!.Frame}"
                     : $"dragged {d.Moving.Count} windows by {d.Clicked!.Frame.X - d.Moving.First(m => m.w == d.Clicked).start.X:0},{d.Clicked.Frame.Y - d.Moving.First(m => m.w == d.Clicked).start.Y:0}");
                 foreach (var (w, start) in d.Moving) NoteUserMove(w, start.Origin);
+                SettleGroups(DragStarts(d));
                 ScheduleSave();
+                Relayout();
+                break;
+            case DragKind.GroupMove or DragKind.GroupResize:
+                EndGroupDrag(d, click);
                 break;
             case DragKind.Windows when click:
                 Log.Info($"click on {d.Clicked}");
@@ -1769,6 +1800,7 @@ sealed class Canvas
         hovered = null;
         camera.Scale = 1;
         liveOrigin = camera.Origin;
+        SettleGroups(); // apps may have moved or grown at 100%
         if (pictures.Lost || picturesStale)
         {
             picturesStale = false;
@@ -1919,6 +1951,7 @@ sealed class Canvas
             Log.Info($"focus {lastFocus}");
         }
         ReleaseDragIn();
+        renameBox.Finish(save: true, byKey: false);
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
         ShowDialogOverCanvas(0);
@@ -2131,6 +2164,12 @@ sealed class Canvas
             w.Placed = null;
         }
         foreach (var e in savedPool) LayoutStore.Scale(e, c, r);
+        foreach (var g in groups)
+        {
+            var o = P(g.Box.Origin);
+            var s = Z(g.Box.Size);
+            g.Box = new RectD(o.X, o.Y, s.W, s.H);
+        }
         if (fittedView is SizeD v) fittedView = Z(v);
         foreach (var w in windows) w.FitPush = w.FitPush * r;
         Log.Info($"scaling {canvasDpi * 100 / 96}% -> {dpi * 100 / 96}%: canvas scaled by {r:0.###}");
@@ -2237,7 +2276,8 @@ sealed class Canvas
     Camera FitCamera(double maxScale)
     {
         if (windows.Count == 0) return Camera.Centered(camera.Center(ViewSize), 0.5, ViewSize);
-        var bounds = windows.Skip(1).Aggregate(windows[0].Frame, (b, w) => b.Union(w.Frame)).Inset(-80, -80);
+        var bounds = windows.Skip(1).Aggregate(windows[0].Frame, (b, w) => b.Union(w.Frame));
+        bounds = groups.Aggregate(bounds, (b, g) => b.Union(g.Box)).Inset(-80, -80);
         double s = Math.Min(Math.Min(ViewSize.X / bounds.W, ViewSize.Y / bounds.H), maxScale);
         return Camera.Centered(bounds.Center, Math.Max(s, Camera.MinScale), ViewSize);
     }
@@ -2479,6 +2519,10 @@ sealed class Canvas
             case WM_SETCURSOR when active && (spaceHeld || drag?.What == DragKind.Pan):
                 SetCursor(LoadCursor(0, IDC_SIZEALL));
                 return 1;
+            case WM_SETCURSOR when active && !gliding && animation == null && GetCursorPos(out var at)
+                                   && GroupCursorAt(new Vec(at.X - monitor.Left, at.Y - monitor.Top)) is var cursor && cursor != 0:
+                SetCursor(cursor);
+                return 1;
             case WM_KEYUP when (int)wParam == VK_SPACE:
                 spaceHeld = false;
                 if (drag?.What != DragKind.Pan) SetCursor(LoadCursor(0, IDC_ARROW));
@@ -2581,6 +2625,7 @@ sealed class Canvas
         int desk = desktopsPanel.Panel.Contains(p) ? desktopsPanel.TileAt(p) : -1;
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
         var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) ? null : WindowAt(p);
+        HoverGroup(p, w);
         if (w == hovered) return;
         hovered = w;
         Redraw();
@@ -2608,6 +2653,7 @@ sealed class Canvas
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         pictures.SetMarks(show ? CurrentMarks(k) : Marks.None, k);
+        pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k);
         var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
         pictures.SetMinimap(map, k);
         if (show) desktopsPanel.Refresh();
@@ -2679,6 +2725,32 @@ sealed class Canvas
             var text = new RECT(lx + pad, ly, lx + lw - pad, ly + h);
             DrawText(hdc, label, -1, ref text, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
+        // Groups, plainly: outline, name and delete button. Only what the thumbnails don't cover shows.
+        nint groupBlue = Gdi32.CreateSolidBrush(Gdi32.RGB(76, 154, 255));
+        nint glyph = Gdi32.CreateFont(-(int)(12 * k), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe MDL2 Assets");
+        void Pill(RectD at, string text)
+        {
+            Gdi32.RoundRect(hdc, (int)at.X, (int)at.Y, (int)at.Right, (int)at.Bottom, (int)at.H, (int)at.H);
+            var inner = new RECT((int)at.X, (int)at.Y, (int)at.Right, (int)at.Bottom);
+            DrawText(hdc, text, -1, ref inner, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        }
+        foreach (var g in GroupDrawings(k))
+        {
+            int edge = Math.Max(1, (int)Math.Round((g.Hovered ? 2 : 1) * k));
+            int bx = (int)Math.Round(g.Box.X), by = (int)Math.Round(g.Box.Y), bw = (int)Math.Round(g.Box.Right), bh = (int)Math.Round(g.Box.Bottom);
+            foreach (var s in new[] { new RECT(bx, by, bw, by + edge), new RECT(bx, bh - edge, bw, bh), new RECT(bx, by, bx + edge, bh), new RECT(bw - edge, by, bw, bh) })
+            {
+                var strip = s;
+                FillRect(hdc, ref strip, groupBlue);
+            }
+            Pill(g.Label, g.Name);
+            nint textFont = Gdi32.SelectObject(hdc, glyph);
+            Pill(g.Trash, "\uE74D");
+            Gdi32.SelectObject(hdc, textFont);
+        }
+        if (NewGroupRect(k) is RectD button) Pill(button, NewGroupText);
+        Gdi32.DeleteObject(glyph);
+        Gdi32.DeleteObject(groupBlue);
         // Rings, the selection box and the marquee's outline (no × buttons: they'd sit on the
         // pictures, which cover the backdrop; Ctrl+W still closes).
         var marks = CurrentMarks(k);
@@ -2939,6 +3011,7 @@ sealed class Canvas
             camera = new { x = camera.Origin.X, y = camera.Origin.Y, scale = camera.Scale },
             screen = monitor.ToString(),
             otherMonitors = otherMonitors.Select(m => m.ToString()),
+            groups = groups.Select(g => new { g.Name, box = g.Box.ToString(), members = MembersOf(g).Select(w => w.ToString()) }),
             dpi,
             elsewhere = elsewhere.Select(h => $"0x{h:X} {Title(h)}"),
             workArea = work.ToString(),

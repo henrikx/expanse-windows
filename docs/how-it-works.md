@@ -66,6 +66,11 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   cloaked, so they leave the canvas and come back to their spots.
 - **Monitors.** The canvas is the main monitor's. A window only on another monitor is left alone;
   one moved onto the main screen joins the canvas.
+- **Groups** are boxes in canvas space, drawn behind the pictures. Membership is never stored: an
+  app whose centre is inside a box is in it. The rules are plain geometry in `src/Layout/Groups.cs`,
+  tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows
+  can use it later. Tidy Up and fitting to a screen treat each group as one block. The rename box
+  is a popup owned by the overlay, because the visual tree covers the overlay's child windows.
 - **Locking and sleep.** While the screen is locked (`WTSRegisterSessionNotification`) or the
   displays are off (`GUID_CONSOLE_DISPLAY_STATE`), window moves aren't followed: a monitor that
   drops out as it sleeps takes its windows with it, and the Mac once had macOS pile every parked

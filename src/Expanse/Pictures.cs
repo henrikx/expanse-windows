@@ -58,6 +58,10 @@ interface IPictures : IDisposable
     /// marquee being dragged, and close buttons.
     void SetMarks(Marks marks, double scale);
 
+    /// Groups, under the pictures, and the New Group button, over everything. This kind draws
+    /// them only if it DrawsDecorations (the overlay does otherwise).
+    void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale);
+
     /// The minimap (bottom right, zoomed out), or none. False if this kind can't draw it (the
     /// caller draws it on the backdrop instead).
     bool SetMinimap(MinimapDrawing? minimap, double scale);
@@ -75,6 +79,9 @@ interface IPictures : IDisposable
 }
 
 readonly record struct Label(nint Hwnd, string Text, RectD Picture);
+
+/// A group in view coordinates: its box, its name's pill and the delete button beside it.
+readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Label, RectD Trash, bool Hovered);
 
 /// View coordinates. Rings and close buttons belong to a window (its handle), and stack with its
 /// picture. `Closes`: the pictures showing a close button (see Marks.CloseRect).
@@ -170,6 +177,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public bool DrawsDecorations => false;
     public void SetLabels(IReadOnlyList<Label> labels, double scale) { }
     public void SetMarks(Marks marks, double scale) { }
+    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale) { }
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }

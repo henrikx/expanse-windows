@@ -89,6 +89,9 @@ start it with Windows.
 | Click or drag in the minimap | Move the view there |
 | <kbd>Ctrl</kbd> + drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
+| Select windows, then click **New Group** | Put a named box round them |
+| Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
+| Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |
 | Arrow keys · <kbd>Return</kbd> | Move the highlight · dive into the highlighted window |
 | Hover <kbd>×</kbd>, or <kbd>Ctrl</kbd> + <kbd>W</kbd> | Close the window, or every selected window |
@@ -109,6 +112,10 @@ move one out of view, and maximises it again when you come back to it.
 
 **Other monitors** are yours. The canvas is the main monitor's, as on the Mac, and windows on the
 others are left alone; drag one onto the main screen and it joins the canvas where you drop it.
+
+**Groups** are named boxes on the canvas. An app whose centre is inside a box is in that group, so
+dragging one in adds it and dragging it out removes it, and the box grows to fit. Boxes never
+overlap, stay until you delete them, and show only on the canvas, not at 100%.
 
 **The tray icon** has the rest. Click it to zoom out; right-click for Pause, Tidy Up, Centre
 Current Window, Restore Layout, Restore All Windows, which corners to use, window names, the

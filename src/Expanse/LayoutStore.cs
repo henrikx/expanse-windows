@@ -23,6 +23,18 @@ sealed class SavedLayout
     public double? FittedWidth { get; set; }
     public double? FittedHeight { get; set; }
     public List<SavedWindow> Windows { get; set; } = new();
+    /// Null in a layout saved before there were groups.
+    public List<SavedGroup>? Groups { get; set; }
+}
+
+/// A group on the canvas (see Groups). Its apps aren't listed: they're the ones inside it.
+sealed class SavedGroup
+{
+    public string Name { get; set; } = "";
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double W { get; set; }
+    public double H { get; set; }
 }
 
 sealed class SavedWindow
@@ -88,6 +100,11 @@ static class LayoutStore
         if (layout.Dpi == 0 || layout.Dpi == dpi) { layout.Dpi = dpi; return; }
         double r = (double)dpi / layout.Dpi;
         foreach (var e in layout.Windows) Scale(e, new Vec(layout.CenterX, layout.CenterY), r);
+        foreach (var g in layout.Groups ?? [])
+        {
+            (g.X, g.Y) = (Layout.Round(layout.CenterX + (g.X - layout.CenterX) * r), Layout.Round(layout.CenterY + (g.Y - layout.CenterY) * r));
+            (g.W, g.H) = (Layout.Round(g.W * r), Layout.Round(g.H * r));
+        }
         if (layout.FittedWidth is double fw && layout.FittedHeight is double fh)
             (layout.FittedWidth, layout.FittedHeight) = (Layout.Round(fw * r), Layout.Round(fh * r));
         Log.Info($"layout: saved at {layout.Dpi * 100 / 96}% scaling, now {dpi * 100 / 96}%: scaled by {r:0.###}");
