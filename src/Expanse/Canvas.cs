@@ -890,6 +890,7 @@ sealed class Canvas
     /// 120 ms later (it often bounces, as on the Mac).
     void OnWindowEvent(uint ev, nint hwnd)
     {
+        if (ev == EVENT_SYSTEM_FOREGROUND && tray.MenuJustOpen) Log.Info($"tray menu: foreground moved to {CanvasWindow.Describe(hwnd)}");
         if (paused) return;
         bool known = windows.Any(w => w.Hwnd == hwnd || w.Owned.Any(o => o.Hwnd == hwnd));
         switch (ev)
@@ -2245,6 +2246,8 @@ sealed class Canvas
     nint? Handle(uint msg, nint wParam, nint lParam)
     {
         if (msg == tray.TaskbarCreated) { tray.Add(); return 0; }
+        // Timers wait for the tray menu to close: left unkilled, each fires again afterwards.
+        if (msg == WM_TIMER && tray.MenuOpen) return 0;
         switch (msg)
         {
             case WM_RUN:

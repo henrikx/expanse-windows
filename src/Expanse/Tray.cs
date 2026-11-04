@@ -24,6 +24,29 @@ sealed class Tray : IDisposable
     bool added;
     string tip = "Expanse";
 
+    /// The menu is up. Its modal loop still delivers our timers, and changing the foreground
+    /// window or the capture from one would close it.
+    public bool MenuOpen { get; private set; }
+    /// Open, or closed moments ago: a foreground change that closes it is reported just after.
+    public bool MenuJustOpen => MenuOpen || Environment.TickCount64 - menuClosedAt < 500;
+    long menuClosedAt = -10_000;
+
+    readonly WndProc ownerProc = (h, m, w, l) => DefWindowProc(h, m, w, l); // kept alive: Windows holds a pointer to it
+    nint menuOwner;
+
+    /// What the menu belongs to while the canvas is closed and the overlay hidden: a one-pixel
+    /// window, fully transparent and only shown for the menu. A hidden window can lose the
+    /// foreground as soon as it gets it, and that closes the menu.
+    nint MenuOwner()
+    {
+        if (menuOwner != 0) return menuOwner;
+        var instance = RegisterWindowClass("ExpanseMenuOwner", ownerProc);
+        menuOwner = CreateWindowEx((uint)(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED), "ExpanseMenuOwner", "",
+            unchecked((uint)WS_POPUP), 0, 0, 1, 1, 0, 0, instance, 0);
+        if (menuOwner != 0) SetLayeredWindowAttributes(menuOwner, 0, 0, LWA_ALPHA);
+        return menuOwner;
+    }
+
     public Tray(nint hwnd)
     {
         this.hwnd = hwnd;
@@ -106,9 +129,27 @@ sealed class Tray : IDisposable
         }
         nint root = Build(items);
         // The menu only closes on a click elsewhere if its window is in the foreground.
-        SetForegroundWindow(hwnd);
-        uint picked = TrackPopupMenu(root, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, x, y, 0, hwnd, 0);
-        PostMessage(hwnd, WM_NULL, 0, 0);
+        nint owner = IsWindowVisible(hwnd) ? hwnd : MenuOwner();
+        if (owner == 0) owner = hwnd;
+        if (owner != hwnd) SetWindowPos(owner, HWND_TOPMOST, x, y, 1, 1, SWP_SHOWWINDOW);
+        bool foreground = SetForegroundWindow(owner);
+        string frontAtOpen = CanvasWindow.Describe(GetForegroundWindow());
+        long openedAt = Environment.TickCount64;
+        MenuOpen = true;
+        uint picked = TrackPopupMenu(root, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, x, y, 0, owner, 0);
+        MenuOpen = false;
+        menuClosedAt = Environment.TickCount64;
+        Log.Info($"tray menu: open {Environment.TickCount64 - openedAt} ms, picked {picked}, foreground set: {foreground}, " +
+                 $"in front at open: {frontAtOpen}, at close: {CanvasWindow.Describe(GetForegroundWindow())}, " +
+                 $"owner {(owner == hwnd ? "overlay" : "transparent")}, " +
+                 $"buttons down: left {GetAsyncKeyState(VK_LBUTTON) < 0}, right {GetAsyncKeyState(VK_RBUTTON) < 0}");
+        PostMessage(owner, WM_NULL, 0, 0);
+        if (owner != hwnd)
+        {
+            // As it was with the overlay as owner: Canvas gives focus back from there.
+            if (GetForegroundWindow() == owner) SetForegroundWindow(hwnd);
+            ShowWindow(owner, SW_HIDE);
+        }
         DestroyMenu(root); // and its submenus
         if (picked > 0 && picked <= commands.Count)
         {
@@ -176,5 +217,6 @@ sealed class Tray : IDisposable
             added = false;
         }
         if (icon != 0) { DestroyIcon(icon); icon = 0; }
+        if (menuOwner != 0) { DestroyWindow(menuOwner); menuOwner = 0; }
     }
 }
