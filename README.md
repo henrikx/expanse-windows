@@ -1,27 +1,3 @@
-> **This is a fork of [invig/expanse-windows](https://github.com/invig/expanse-windows)**, branched
-> from its v0.1.2. This fork's own versions start at 0.2.0. What's different here:
->
-> - **Groups.** Put windows in named boxes on the canvas. Each virtual desktop has its own.
-> - **A groups panel with search.** It lists every group and its apps with their icons. Start typing
->   anywhere on the canvas to search group names, app names and window titles.
-> - **Different canvas controls.** Scrolling zooms and stops at 100%, the middle button moves the
->   canvas, dragging on empty canvas selects windows, and Tidy Up is <kbd>Ctrl</kbd> + <kbd>T</kbd>.
-> - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
->   hot corners only count on the main screen.
-> - **Fixes.**
->   - Windows moved to another monitor stay there instead of being pulled back onto the canvas.
->   - Windows too wide for the other monitor can now leave the canvas.
->   - Windows can be dragged in from another monitor while the canvas is open.
->   - Canvas windows reaching onto another monitor no longer cover that monitor's own windows.
->   - Busy apps, such as Firefox, no longer jump to a different spot on the canvas after a glide.
->   - The view no longer glides away while you're dragging a window.
->   - Moving the canvas with the middle button no longer sticks when the button is let go quickly.
->   - The tray menu stays open while the canvas is closed.
->   - Less flashing when leaving the canvas.
->
-> The download links below are for this fork's releases. These are development builds, so the
-> built-in updater won't update them.
-
 <p align="center">
   <img src="docs/images/preview.jpg" alt="Expanse for Windows, zoomed out: six windows on one canvas with their names above them, the one under the pointer ringed, and the Desktops panel and minimap in the bottom-right corner" width="900">
 </p>
@@ -32,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/henrikx/expanse-windows/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://github.com/invig/expanse-windows/releases/latest"><strong>Download</strong></a> ·
   <a href="#install">Install</a> ·
   <a href="#the-basics">How to use it</a> ·
   <a href="#questions">Questions</a> ·
@@ -64,9 +40,11 @@ rules line for line.
 
 ## Install
 
-[Download **Expanse.exe** from the latest release](https://github.com/henrikx/expanse-windows/releases/latest),
-put it in a folder of your own and run it. It's a single file with nothing else to install, and
-runs on Windows 11.
+[Download the latest version](https://github.com/invig/expanse-windows/releases/latest): **x64**
+for most PCs, **arm64** for Windows on Arm (Snapdragon laptops, Surface Pro X). Unzip it into a
+folder of your own, somewhere in your user folder rather than Program Files so Expanse can update
+itself, and run **Expanse.exe**. It's a single file with nothing else to install, runs on
+Windows 11, and keeps itself up to date.
 
 Expanse isn't code-signed yet, so the first time, Windows may say *Windows protected your PC*:
 choose **More info**, then **Run anyway**.
@@ -215,7 +193,8 @@ titles are left out. Turn Detailed Logging off again once it's reported.
 <summary><strong>What does it keep, and what does it send?</strong></summary>
 
 Window pictures come straight from Windows' compositor: Expanse never captures, records or sends
-them. This fork's development builds make no network requests. Expanse's files are in `%LOCALAPPDATA%\Expanse`: its layouts
+them. The one network request is a daily update check to GitHub, which you can turn off (tray icon
+› Check for Updates Automatically). Expanse's files are in `%LOCALAPPDATA%\Expanse`: its layouts
 (window positions and sizes, app names, and a scrambled fingerprint, a hash, of each window's
 title, which recognises the window without storing the title), its settings, and where your windows
 were before Expanse moved them, so they can go back. With **Detailed Logging** on, its log goes
@@ -282,6 +261,7 @@ start "expanse://focus?app=Notepad"
 start "expanse://layout?snapshot=0"  # back to the newest saved layout (1, 2: older ones)
 start expanse://pause                # windows back where they were
 start expanse://resume
+start "expanse://update?install=1"   # check for an update, and install it
 ```
 
 Also `enter`, `exit`, `fit`, `zoom?scale=0.5`, `pan?dx=100&dy=0` and `restore`.
