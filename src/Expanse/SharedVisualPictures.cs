@@ -439,9 +439,16 @@ sealed class SharedVisualPictures : IPictures
     }
 
     /// Each group's tinted box and border, its name and delete button; the New Group button.
-    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale)
+    /// `solidity`, 0 to 1: how strong the tint and border are (see Canvas.GroupsTakeClicks).
+    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity)
     {
-        double thin = Math.Max(1, Math.Round(scale));
+        double thin = Math.Max(1, Math.Round(scale * (1 + solidity)));
+        float s = (float)solidity;
+        // From the light blue to a dark one, which shows on any wallpaper.
+        static float Mix(float from, float to, float t) => from + (to - from) * t;
+        groupFill.SetColour(Mix(76, 8, s) / 255f, Mix(154, 30, s) / 255f, Mix(255, 90, s) / 255f, Mix(0.08f, 0.55f, s));
+        groupFillHover.SetColour(Mix(76, 20, s) / 255f, Mix(154, 60, s) / 255f, Mix(255, 150, s) / 255f, Mix(0.14f, 0.7f, s));
+        groupEdge.SetColour(Mix(76, 30, s) / 255f, Mix(154, 90, s) / 255f, Mix(255, 200, s) / 255f, Mix(0.5f, 1f, s));
         var edges = new List<RectD>();
         var hoverEdges = new List<RectD>();
         foreach (var g in groups) Outline(g.Hovered ? hoverEdges : edges, g.Box, thin);
@@ -930,12 +937,26 @@ sealed class SharedVisualPictures : IPictures
         public IDCompositionSurface Colour => colour;
         readonly List<IDCompositionVisual2> pool = new();
 
+        (float r, float g, float b, float a) painted;
+
         public Strips(SharedVisualPictures owner, float r, float g, float b, float a = 1f)
         {
             this.owner = owner;
             owner.device.CreateVisual(out container);
             owner.root.AddVisual(container, false, null);
             owner.device.CreateSurface(1, 1, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out colour);
+            Paint(r, g, b, a);
+        }
+
+        /// Paints the rectangles this colour, if that's a change.
+        public void SetColour(float r, float g, float b, float a)
+        {
+            if ((r, g, b, a) != painted) Paint(r, g, b, a);
+        }
+
+        void Paint(float r, float g, float b, float a)
+        {
+            painted = (r, g, b, a);
             // ImmediateContext is cached by Vortice: not ours to dispose.
             using (var tex = colour.BeginDraw<ID3D11Texture2D>(null, out Vortice.Mathematics.Int2 offset))
             using (var rtv = owner.d3d.CreateRenderTargetView(tex, null))

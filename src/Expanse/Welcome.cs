@@ -23,6 +23,7 @@ static class Welcome
         ("Ctrl + Alt + C", "Centre the window you're in"),
         ("Wheel  ·  Ctrl + wheel", "Zoom  ·  move up and down"),
         ("Middle-button drag", "Move around the canvas"),
+        ("Ctrl + Alt + middle-button drag", "Move it from over any window"),
         ("Drag a window", "Move it; it snaps into place"),
         ("Drag empty canvas", "Select several, then drag or close them together"),
         ("Ctrl + T", "Tidy up: line up each group, where it is"),
@@ -44,7 +45,7 @@ static class Welcome
         var instance = RegisterWindowClass("ExpanseWelcome", proc);
         var (monitor, work) = PrimaryMonitor();
         double k = PrimaryDpi() / 96.0;
-        int w = (int)(600 * k), h = (int)(692 * k);
+        int w = (int)(600 * k), h = (int)(724 * k);
         hwnd = CreateWindowEx(0, "ExpanseWelcome", "Welcome to Expanse", 0x00C00000 | 0x00080000 | 0x00020000, // caption, system menu, minimise
             work.Left + (work.Width - w) / 2, work.Top + (work.Height - h) / 2, w, h, 0, 0, instance, 0);
         if (hwnd == 0) { Log.Info("welcome: couldn't open"); return 0; }

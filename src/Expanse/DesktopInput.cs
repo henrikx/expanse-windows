@@ -6,7 +6,8 @@ namespace Expanse;
 
 /// The empty desktop, as on the Mac (where Expanse's backdrop is the desktop): a click on it zooms
 /// out, a middle-button drag on it moves the canvas, and a scroll or pinch over it acts on the
-/// canvas from 100%.
+/// canvas from 100%. Ctrl+Alt + a middle-button drag moves the canvas from over any window too, for
+/// when windows leave little desktop showing.
 ///
 /// A low-level mouse hook sees the clicks and wheel turns. It runs on a thread of its own, so the
 /// pointer never waits on Expanse's UI thread (Windows holds every mouse event until a hook
@@ -88,9 +89,11 @@ sealed class DesktopInput : IDisposable
                     downOnDesktop = IsDesktop(m.pt);
                     break;
                 case WM_MBUTTONDOWN:
-                    if (!IsDesktop(m.pt)) break;
+                    // Not the press the canvas makes again: Armed can lag behind the canvas rising.
+                    if (m.extra == OwnInput) break;
+                    if (!CtrlAltHeld && !IsDesktop(m.pt)) break;
                     PostMessage(overlay, WM_DESKTOP_MIDDLE, 0, Pack(m.pt));
-                    return 1; // the desktop doesn't get it
+                    return 1; // what's under the pointer doesn't get it
                 case WM_LBUTTONUP:
                     if (downOnDesktop && Math.Abs(m.pt.X - downAt.X) < 4 && Math.Abs(m.pt.Y - downAt.Y) < 4 && IsDesktop(m.pt))
                         PostMessage(overlay, WM_DESKTOP_CLICK, 0, Pack(m.pt));
@@ -109,6 +112,8 @@ sealed class DesktopInput : IDisposable
     }
 
     static nint Pack(POINT p) => (nint)(((p.Y & 0xFFFF) << 16) | (p.X & 0xFFFF));
+
+    static bool CtrlAltHeld => GetAsyncKeyState(VK_CONTROL) < 0 && GetAsyncKeyState(VK_MENU) < 0;
 
     /// The desktop itself (not a window over it): its shell windows, or the icons on them.
     static bool IsDesktop(POINT p)

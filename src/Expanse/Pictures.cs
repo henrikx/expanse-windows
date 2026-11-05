@@ -60,7 +60,7 @@ interface IPictures : IDisposable
 
     /// Groups, under the pictures, and the New Group button, over everything. This kind draws
     /// them only if it DrawsDecorations (the overlay does otherwise).
-    void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale);
+    void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity);
 
     /// The groups panel, or none. False if this kind can't draw it (the caller draws it on the backdrop).
     bool SetTreePanel(TreeDrawing? tree, double scale);
@@ -189,7 +189,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public bool DrawsDecorations => false;
     public void SetLabels(IReadOnlyList<Label> labels, double scale) { }
     public void SetMarks(Marks marks, double scale) { }
-    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale) { }
+    public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity) { }
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
     public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;

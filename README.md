@@ -101,13 +101,14 @@ start it with Windows.
 | Click empty desktop | Zoom out to every window |
 | Scroll on empty desktop | Start zooming out from 100% |
 | Middle-button drag on empty desktop | Move around the canvas from 100% |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + middle-button drag | Move around the canvas from 100%, starting over any window |
 | Click or drag in the minimap | Move the view there |
 | Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
 | <kbd>Shift</kbd> + drag · <kbd>Ctrl</kbd> or <kbd>Shift</kbd> + drag inside a group's box | Add to the selection · select there instead of moving the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
-| Click an app in a group, at 35% zoom or less · right-click one at any zoom | Go to the group, not just that app |
+| Click an app in a group, at 50% zoom or less (the groups' boxes turn more solid) · right-click one at any zoom | Go to the group, not just that app |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |

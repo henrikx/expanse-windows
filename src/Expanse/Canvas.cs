@@ -162,7 +162,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null;
+    public bool IsAnimating => animation != null || GroupSolidityMoving;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -2457,8 +2457,14 @@ sealed partial class Canvas
     /// One frame: called by the message loop, which then waits for DWM's next composition.
     public void Tick()
     {
+        bool fading = GroupSolidityMoving;
+        if (fading) StepGroupSolidity();
         var a = animation;
-        if (a == null) return;
+        if (a == null)
+        {
+            if (fading) Redraw();
+            return;
+        }
         long now = Stopwatch.GetTimestamp();
         if (a.Frames == 0) a.FirstFrame = now;
         else
@@ -2664,13 +2670,14 @@ sealed partial class Canvas
             }
             case DesktopInput.WM_DESKTOP_MIDDLE:
             {
-                // From 100%: a middle-button drag from the empty desktop moves the canvas. The hook
-                // kept the press from the desktop, so it's made again on the overlay, which then
-                // handles the drag like any other. Not for the other monitors: no canvas there.
+                // From 100%: a middle-button drag from the empty desktop, or with Ctrl+Alt from over
+                // any window, moves the canvas. The hook kept the press from what's under the pointer,
+                // so it's made again on the overlay, which then handles the drag like any other. Not
+                // for the other monitors: no canvas there.
                 if (active || paused || gliding) return 0;
                 var at = new POINT((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
                 if (at.X < monitor.Left || at.X >= monitor.Right || at.Y < monitor.Top || at.Y >= monitor.Bottom) return 0;
-                Log.Info("middle button on the desktop: moving the canvas from 100%");
+                Log.Info("middle button at 100%: moving the canvas");
                 Enter(zoomOut: true, overview: false);
                 // Rising takes a moment: the button may be up by now, and a press then would stick.
                 if (active && desktopInput.MiddleHeld)
@@ -2850,7 +2857,7 @@ sealed partial class Canvas
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         pictures.SetMarks(show ? CurrentMarks(k) : Marks.None, k);
-        pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k);
+        pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k, groupSolidity);
         var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
         pictures.SetMinimap(map, k);
         if (show) desktopsPanel.Refresh();
@@ -2934,7 +2941,7 @@ sealed partial class Canvas
         }
         foreach (var g in GroupDrawings(k))
         {
-            int edge = Math.Max(1, (int)Math.Round((g.Hovered ? 2 : 1) * k));
+            int edge = Math.Max(1, (int)Math.Round(((g.Hovered ? 2 : 1) + (GroupsTakeClicks ? 1 : 0)) * k));
             int bx = (int)Math.Round(g.Box.X), by = (int)Math.Round(g.Box.Y), bw = (int)Math.Round(g.Box.Right), bh = (int)Math.Round(g.Box.Bottom);
             foreach (var s in new[] { new RECT(bx, by, bw, by + edge), new RECT(bx, bh - edge, bw, bh), new RECT(bx, by, bx + edge, bh), new RECT(bw - edge, by, bw, bh) })
             {

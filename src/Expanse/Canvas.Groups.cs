@@ -149,10 +149,30 @@ sealed partial class Canvas
 
     /// Zoomed out this far (as the minimap rounds it) a group's apps are too small to aim at: a
     /// click on one goes to its group. Dragging one, Shift and its × still work.
-    const int GroupClickZoom = 35;
+    const int GroupClickZoom = 50;
 
     /// The group a click on this window goes to instead of the window, if any.
-    CanvasGroup? GroupTakingClick(CanvasWindow w) => Math.Round(camera.Scale * 100) > GroupClickZoom ? null : GroupHolding(w);
+    CanvasGroup? GroupTakingClick(CanvasWindow w) => GroupsTakeClicks ? GroupHolding(w) : null;
+
+    bool GroupsTakeClicks => Math.Round(camera.Scale * 100) <= GroupClickZoom;
+
+    /// How solid the groups' boxes look, from 0 (a click on an app goes to the app) to 1 (to its
+    /// group). It fades, so the eye catches the zoom crossing GroupClickZoom.
+    double groupSolidity;
+    long groupSolidityAt;
+    const double GroupSolidityFade = 0.15;
+
+    bool GroupSolidityMoving => active && !gliding && groupSolidity != (GroupsTakeClicks ? 1 : 0);
+
+    /// One frame of the fade.
+    void StepGroupSolidity()
+    {
+        long now = Stopwatch.GetTimestamp();
+        // Not the time since the last fade, which may be long ago: at most a slow frame's worth.
+        double step = Math.Min(Stopwatch.GetElapsedTime(groupSolidityAt, now).TotalSeconds, 0.033) / GroupSolidityFade;
+        groupSolidityAt = now;
+        groupSolidity = GroupsTakeClicks ? Math.Min(1, groupSolidity + step) : Math.Max(0, groupSolidity - step);
+    }
 
     CanvasGroup? GroupHolding(CanvasWindow w) => groups.FirstOrDefault(g => Groups.IsMember(g.Box, GroupFrame(w)));
 
