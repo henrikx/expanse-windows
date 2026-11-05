@@ -9,8 +9,8 @@
 > - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
 >   hot corners only count on the main screen.
 >
-> The download links below are for this fork's releases. The built-in updater still points to the
-> original project, and an update from there would replace this fork.
+> The download links below are for this fork's releases. These are development builds, so the
+> built-in updater won't update them.
 
 <p align="center">
   <img src="docs/images/preview.jpg" alt="Expanse for Windows, zoomed out: six windows on one canvas with their names above them, the one under the pointer ringed, and the Desktops panel and minimap in the bottom-right corner" width="900">
@@ -205,8 +205,7 @@ titles are left out. Turn Detailed Logging off again once it's reported.
 <summary><strong>What does it keep, and what does it send?</strong></summary>
 
 Window pictures come straight from Windows' compositor: Expanse never captures, records or sends
-them. The one network request is a daily update check to GitHub, which you can turn off (tray icon
-› Check for Updates Automatically). Expanse's files are in `%LOCALAPPDATA%\Expanse`: its layouts
+them. This fork's development builds make no network requests. Expanse's files are in `%LOCALAPPDATA%\Expanse`: its layouts
 (window positions and sizes, app names, and a scrambled fingerprint, a hash, of each window's
 title, which recognises the window without storing the title), its settings, and where your windows
 were before Expanse moved them, so they can go back. With **Detailed Logging** on, its log goes
@@ -273,7 +272,6 @@ start "expanse://focus?app=Notepad"
 start "expanse://layout?snapshot=0"  # back to the newest saved layout (1, 2: older ones)
 start expanse://pause                # windows back where they were
 start expanse://resume
-start "expanse://update?install=1"   # check for an update, and install it
 ```
 
 Also `enter`, `exit`, `fit`, `zoom?scale=0.5`, `pan?dx=100&dy=0` and `restore`.
