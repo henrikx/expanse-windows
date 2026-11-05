@@ -13,6 +13,10 @@ sealed class Settings
     /// must be off screen for focus on it to glide there (see Layout.HiddenEnough).
     public int AutoCentreHidden { get; set; } = 25;
 
+    /// Nudge Focused Window Into View: going to a partly hidden window moves the view just enough
+    /// to show it all, with some padding. Off, it centres the window.
+    public bool NudgeIntoView { get; set; } = true;
+
     /// The desktop picture behind the canvas; off, a plain dark background.
     public bool Wallpaper { get; set; } = true;
 

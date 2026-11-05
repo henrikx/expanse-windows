@@ -42,5 +42,28 @@ static class ScreenTests
         Hidden("too big, off to one side, less than the percentage", new(960, 0, 2120, 1280), 51, false);
         Hidden("a percentage below 1 is 1", new(100, 100, 800, 600), 0, false);
         expect("hidden: a window with no size has nothing hidden", Layout.HiddenShare(new(3000, 100, 0, 0), main) == 0, "");
+
+        void Nudged(string name, RectD f, double x, double y)
+        {
+            var d = Layout.Nudge(f, main, 32);
+            expect($"nudge: {name}", d.X == x && d.Y == y, $"want {x},{y} for {f}, got {d.X},{d.Y}");
+            expect($"nudge: {name}, leaves nothing hidden", Layout.HiddenShare(f.Offset(d), main) == 0, $"{f.Offset(d)}");
+            expect($"nudge: {name}, then stays", Layout.Nudge(f.Offset(d), main, 32) == new Vec(0, 0), $"{f.Offset(d)}");
+        }
+
+        Nudged("inside with room stays", new(100, 100, 800, 600), 0, 0);
+        Nudged("off the left, to the padding", new(-100, 100, 800, 600), 132, 0);
+        Nudged("off the right, to the padding", new(1500, 100, 800, 600), -412, 0);
+        Nudged("off past a corner moves both ways", new(-100, -100, 800, 600), 132, 132);
+        Nudged("wholly off screen comes just inside", new(3000, 2000, 800, 600), -1912, -1552);
+        Nudged("on screen but inside the padding", new(10, 100, 800, 600), 22, 0);
+        Nudged("no room for the padding gets even margins", new(-50, 100, 1900, 600), 60, 0);
+        Nudged("exactly the screen's width", new(-50, 100, 1920, 600), 50, 0);
+        Nudged("too wide, covering the screen", new(-100, 100, 2120, 600), 0, 0);
+        Nudged("too wide, off to the right", new(100, 100, 2120, 600), -100, 0);
+        Nudged("too wide, off to the left", new(-500, 100, 2120, 600), 300, 0);
+        Nudged("too tall, covering the screen", new(100, -100, 800, 1280), 0, 0);
+        Nudged("too tall, lower down, to its top", new(100, 100, 800, 1280), 0, -100);
+        Nudged("too tall, higher up, to its top too", new(100, -500, 800, 1280), 0, 500);
     }
 }

@@ -49,7 +49,10 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   120 ms later. A window that gets focus with enough of its area off screen or under the taskbar (a click, the
   taskbar, Alt-Tab, an app bringing it forward) is glided to: the Mac's auto-centre. How much is
   the tray's Auto-Centre When Hidden, 25% to begin with; a window too big for the screen counts only
-  what could have fit. Focus handed on by Windows after
+  what could have fit. Picking a window in the canvas at 100% goes by the same share. With Nudge
+  Focused Window Into View, on to begin with, the view moves only enough to show the window, with
+  some padding; off, it centres the window. Centre Current Window, hops, new windows and picks from
+  zoomed out still centre. Focus handed on by Windows after
   you close or minimise one doesn't count.
 - **Focus** is set directly where Windows allows it; where it doesn't (another app is in front),
   a null key press, then an Alt tap, then `AttachThreadInput`.

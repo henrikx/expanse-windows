@@ -1188,7 +1188,7 @@ sealed partial class Canvas
             return;
         }
         Log.Info($"focus went to {focused}, {Layout.HiddenShare(camera.ToView(focused.Frame), WorkView):P0} hidden: glide to {w}");
-        Glide(w);
+        Glide(w, nudge: focused);
     }
 
     // MARK: Hops
@@ -1596,13 +1596,16 @@ sealed partial class Canvas
 
     double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
 
-    /// Picking a window at 100% leaves the view where it is: as Auto-Centre When Hidden says, the
+    /// Picking this at 100% leaves the view where it is: as Auto-Centre When Hidden says, the
     /// same as focus on it outside the canvas. With Auto-Centre off, as long as its centre is on screen.
     bool StaysInView(RectD r) => settings.AutoCentre
         ? !Layout.HiddenEnough(r, WorkView, settings.AutoCentreHidden)
         : View.Contains(r.Center);
 
-    /// The part of the view that isn't under the taskbar, where going to a window centres it.
+    /// What NudgeCamera leaves between a window and the edge of the work area, at a display scale of 1.
+    const double NudgePadding = 32;
+
+    /// The part of the view that isn't under the taskbar, where going to a window takes it.
     RectD WorkView => new(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
 
     /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms in around the
@@ -1872,6 +1875,7 @@ sealed partial class Canvas
         null,
         new("Centre Current Window\tCtrl+Alt+C", CentreCurrentWindow, Enabled: !paused),
         new("Auto-Centre Focused Window\tCtrl+Alt+Shift+`", ToggleAutoCentre, settings.AutoCentre),
+        new("Nudge Focused Window Into View", ToggleNudgeIntoView, settings.NudgeIntoView),
         new($"Auto-Centre When Hidden ({Math.Clamp(settings.AutoCentreHidden, 1, 100)}%)…", ChooseAutoCentreHidden, Enabled: settings.AutoCentre),
         new("Desktop Picture Background", () =>
         {
@@ -2030,8 +2034,10 @@ sealed partial class Canvas
     }
 
     /// Back to 100%: on `focus` (centred in the work area), or where you were.
-    /// `keepView`: a window you picked stays where it is, if it's in view at 100% (StaysInView).
-    public void Exit(CanvasWindow? focus, double duration = 0.18, bool keepView = false)
+    /// `keepView`: a window you picked stays where it is, if it's in view at 100% (StaysInView);
+    /// if it isn't, the view moves as `nudge` says. `nudge`: at 100%, the view may move only enough
+    /// to show this window, the setting allowing (NudgeCamera), rather than centre `focus`.
+    public void Exit(CanvasWindow? focus, double duration = 0.18, bool keepView = false, CanvasWindow? nudge = null)
     {
         if (!active || (gliding && focus == null)) return;
         Camera target;
@@ -2039,11 +2045,14 @@ sealed partial class Canvas
         {
             BringToFront(focus);
             FitToScreen(focus);
-            if (keepView && Math.Abs(camera.Scale - 1) < 0.001 && StaysInView(camera.ToView(focus.Frame)))
+            bool atFullSize = Math.Abs(camera.Scale - 1) < 0.001;
+            if (keepView && atFullSize && StaysInView(camera.ToView(focus.Frame)))
             {
                 Log.Info($"{focus} in view: diving in where it is");
                 target = new Camera(new Vec(Math.Round(camera.Origin.X), Math.Round(camera.Origin.Y)), 1);
             }
+            else if (atFullSize && settings.NudgeIntoView && (nudge ?? (keepView ? focus : null)) is CanvasWindow shown)
+                target = NudgeCamera(shown);
             else target = FocusCamera(focus);
         }
         else target = returnCamera ?? Camera.Centered(camera.Center(ViewSize), 1, ViewSize);
@@ -2056,7 +2065,7 @@ sealed partial class Canvas
 
     /// From 100%: the overlay rises at scale 1 (pictures over the real windows), the camera
     /// glides to `w`, then everything is handed back as after a dive.
-    public void Glide(CanvasWindow w, bool sync = true)
+    public void Glide(CanvasWindow w, bool sync = true, CanvasWindow? nudge = null)
     {
         if (gliding) return;
         // Going anywhere now would pull the window you're dragging out of your hand.
@@ -2065,9 +2074,9 @@ sealed partial class Canvas
             Log.Info($"not gliding to {w}: a window is being dragged");
             return;
         }
-        if (active) { Exit(w); return; }
+        if (active) { Exit(w, nudge: nudge); return; }
         Enter(zoomOut: false, sync);
-        Exit(w, 0.3);
+        Exit(w, 0.3, nudge: nudge);
     }
 
     /// Moves the real windows to where the camera says, waits for the ones in view to land,
@@ -2452,6 +2461,15 @@ sealed partial class Canvas
         double x = ax + (work.Width - w.Frame.W) / 2;
         double y = w.Frame.H > work.Height ? ay : ay + (work.Height - w.Frame.H) / 2;
         return new Camera(new Vec(Math.Round(w.Frame.X - x), Math.Round(w.Frame.Y - y)), 1);
+    }
+
+    /// The view at 100%, moved only enough to show all of `w`, with some padding, in the work area.
+    /// A maximised window goes exactly where maximised windows sit, as ever.
+    Camera NudgeCamera(CanvasWindow w)
+    {
+        if (w.Maximised) return FocusCamera(w);
+        var d = Layout.Nudge(camera.ToView(w.Frame), WorkView, NudgePadding * UiScale);
+        return new Camera(new Vec(Math.Round(camera.Origin.X - d.X), Math.Round(camera.Origin.Y - d.Y)), 1);
     }
 
     Camera OverviewCamera() => FitCamera(0.6);
@@ -3303,7 +3321,7 @@ sealed partial class Canvas
     void ChooseAutoCentreHidden()
     {
         if (PercentDialog.Ask("Auto-Centre When Hidden",
-            "When a window gets focus with at least this much of it off screen, the view glides to centre it. With less hidden, the view stays.",
+            "When a window gets focus with at least this much of it off screen, the view moves to show it. With less hidden, the view stays.",
             "Share of the window hidden, 1 to 100:", Math.Clamp(settings.AutoCentreHidden, 1, 100), 1, 100) is int percent)
         {
             settings.AutoCentreHidden = percent;
@@ -3313,6 +3331,13 @@ sealed partial class Canvas
         if (!active) return;
         Focus(overlay.Hwnd);
         Redraw();
+    }
+
+    void ToggleNudgeIntoView()
+    {
+        settings.NudgeIntoView = !settings.NudgeIntoView;
+        settings.Save();
+        Log.Info($"nudge into view {(settings.NudgeIntoView ? "on" : "off")}");
     }
 
     void ToggleAutoCentre()

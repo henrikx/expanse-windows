@@ -354,6 +354,28 @@ public static class Layout
     public static bool HiddenEnough(RectD frame, RectD view, int percent) =>
         HiddenShare(frame, view) * 100 >= Math.Clamp(percent, 1, 100) - 1e-9;
 
+    /// How far to move `frame`, the least there is, to have it all inside `view` with `padding`
+    /// to spare. One with less room than that gets even margins. One too big for the view moves
+    /// only if it leaves part of the view empty: to cover it across, and down from its top, where
+    /// the title bar is.
+    public static Vec Nudge(RectD frame, RectD view, double padding) => new(
+        NudgeAlong(frame.X, frame.W, view.X, view.W, padding, fromStart: false),
+        NudgeAlong(frame.Y, frame.H, view.Y, view.H, padding, fromStart: true));
+
+    static double NudgeAlong(double at, double length, double start, double room, double padding, bool fromStart)
+    {
+        double end = start + room;
+        if (length > room)
+        {
+            if (at <= start && at + length >= end) return 0;
+            return fromStart || at > start ? start - at : end - (at + length);
+        }
+        double spare = Math.Min(padding, (room - length) / 2);
+        if (at < start + spare) return start + spare - at;
+        if (at + length > end - spare) return end - spare - (at + length);
+        return 0;
+    }
+
     // MARK: New windows
 
     /// A canvas position for a window of `size` that overlaps none of `others`. First anywhere
