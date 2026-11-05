@@ -1,5 +1,5 @@
 > **This is a fork of [invig/expanse-windows](https://github.com/invig/expanse-windows)**, branched
-> from its v0.2.0. What's different here:
+> from its v0.1.2. This fork's own versions start at 0.2.0. What's different here:
 >
 > - **Groups.** Put windows in named boxes on the canvas. Each virtual desktop has its own.
 > - **A groups panel with search.** It lists every group and its apps with their icons. Start typing
