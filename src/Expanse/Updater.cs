@@ -25,10 +25,10 @@ sealed class Updater(Action<Action> post)
     public sealed record Release(string Version, Uri Zip, Uri Page, string? Sha256);
     public enum Outcome { DevelopmentBuild, Busy, Failed, UpToDate, Ready }
 
-    public const string Repo = "invig/expanse-windows";
+    public const string Repo = "henrikx/expanse-windows";
     static readonly Uri LatestUrl = new($"https://api.github.com/repos/{Repo}/releases/latest");
 
-    /// Built by scripts/release.sh (ExpanseRelease set): a release, which has releases to update to.
+    /// A Release build (see Expanse.csproj): a release, which has releases to update to.
     public static readonly bool IsRelease = typeof(Updater).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
         .Any(a => a.Key == "ExpanseRelease" && a.Value == "true");
 

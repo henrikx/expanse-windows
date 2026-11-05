@@ -30,6 +30,8 @@ sealed class CanvasWindow
     /// Where it sits in the home layout: the arrangement at full chosen sizes (the big screen). On
     /// a smaller screen the canvas is derived from it, so it comes back exactly.
     public Vec? Home;
+    /// When Expanse first saw it (Environment.TickCount64).
+    public readonly long SeenAt = Environment.TickCount64;
     /// How far the last fit pushed it to clear an overlap (see Canvas.FitLayoutToScreen).
     public Vec FitPush;
     /// The size Expanse last gave it, so our resizes aren't taken for yours.

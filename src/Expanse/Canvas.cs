@@ -46,6 +46,7 @@ sealed partial class Canvas
     readonly HashSet<CanvasWindow> selected = new();
     RectD? marquee;            // the box being dragged out, view space
     bool spaceHeld;            // Space down, zoomed out: dragging pans
+    bool sessionEnding;        // Windows is shutting down or signing out: see WM_QUERYENDSESSION
     bool middleMadeAgain;      // the next middle press is the one kept from the desktop, made again
     /// The origin of the 100% camera you zoomed out from: zoomed out, the real windows are still
     /// where it put them.
@@ -313,11 +314,16 @@ sealed partial class Canvas
             // Still there, just minimised, hidden or cloaked: it'll come back to its spot.
             if (elsewhere.Contains(gone.Hwnd)) { }
             else if (IsWindow(gone.Hwnd)) departed[gone.Hwnd] = gone;
+            else KeepSpot(gone);
             if (!elsewhere.Contains(gone.Hwnd)) Log.Info($"window {gone} {(IsWindow(gone.Hwnd) ? "left the canvas for now" : "gone")}");
             ownedLeft.AddRange(gone.Owned);
             gone.Owned.Clear();
         }
-        foreach (var h in departed.Keys.Where(h => !IsWindow(h)).ToList()) departed.Remove(h);
+        foreach (var h in departed.Keys.Where(h => !IsWindow(h)).ToList())
+        {
+            KeepSpot(departed[h]);
+            departed.Remove(h);
+        }
         windows.Clear();
         windows.AddRange(next);
         SyncOwned();
@@ -443,6 +449,18 @@ sealed partial class Canvas
         Save();
     }
 
+    const int SavedSpotsKept = 60;
+    const long BriefWindowMs = 30_000;
+
+    /// A window has closed: its spot waits for its app to open a window again, newest first. Not a
+    /// brief one's: a splash screen closing would hand the app's main window its spot and size.
+    void KeepSpot(CanvasWindow w)
+    {
+        if (Environment.TickCount64 - w.SeenAt < BriefWindowMs) return;
+        savedPool.Insert(0, LayoutStore.Entry(w));
+        if (savedPool.Count > SavedSpotsKept) savedPool.RemoveRange(SavedSpotsKept, savedPool.Count - SavedSpotsKept);
+    }
+
     HashSet<(long, uint)> OpenKeys() =>
         windows.Concat(departed.Values).Select(w => ((long)w.Hwnd, w.Pid)).ToHashSet();
 
@@ -470,7 +488,7 @@ sealed partial class Canvas
     /// they're staying put for the next Expanse (HandOver).
     void Save(bool cleanExit = false, bool handOver = false)
     {
-        if (paused || !initialSyncDone) return;
+        if (paused || !initialSyncDone || sessionEnding) return;
         HomeFromCanvas();
         // Windows away (minimised, hidden) keep their spots too, and so do saved ones not open now.
         var layout = new SavedLayout
@@ -479,7 +497,7 @@ sealed partial class Canvas
             Dpi = canvasDpi,
             FittedWidth = fittedView?.W, FittedHeight = fittedView?.H,
             Windows = windows.Concat(departed.Values.Where(w => IsWindow(w.Hwnd))).Select(LayoutStore.Entry)
-                .Concat(savedPool.Take(60)).ToList(),
+                .Concat(savedPool.Take(SavedSpotsKept)).ToList(),
             Groups = SavedGroups(), OthersCollapsed = othersCollapsed,
         };
         string? before = lastSavedJson;
@@ -2515,6 +2533,18 @@ sealed partial class Canvas
         if (msg == WM_TIMER && tray.MenuOpen) return 0;
         switch (msg)
         {
+            case 0x11 /* WM_QUERYENDSESSION */:
+                // Shutting down or signing out: the layout as it is now is the one to come back to,
+                // not what's left of it as apps close.
+                Save();
+                sessionEnding = true;
+                Log.Info("session ending: layout saved, no more saves");
+                return 1;
+            case 0x16 /* WM_ENDSESSION */ when wParam == 0:
+                sessionEnding = false;
+                Log.Info("session not ending after all");
+                ScheduleSave();
+                return 0;
             case WM_RUN:
                 while (posted.TryDequeue(out var action)) action();
                 return 0;

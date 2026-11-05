@@ -13,13 +13,13 @@ cd "$(dirname "$0")/.."
 
 VERSION=${VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Expanse/Expanse.csproj)}
 OUT="artifacts/release"
-GITHUB_REPO=invig/expanse-windows
+GITHUB_REPO=henrikx/expanse-windows
 
 echo "==> Expanse $VERSION for Windows"
 if [[ -z "${DRY_RUN:-}" ]]; then
   git diff --quiet HEAD || { echo "Commit first: the release is tagged at HEAD." >&2; exit 1; }
   [[ "$(git rev-parse HEAD)" == "$(git rev-parse '@{u}')" ]] || { echo "Push first: GitHub tags the release at HEAD." >&2; exit 1; }
-  if git ls-remote --tags origin "v$VERSION" | grep -q .; then
+  if git ls-remote --tags henrikx "v$VERSION" | grep -q .; then
     echo "Tag v$VERSION already exists; bump <Version> in src/Expanse/Expanse.csproj." >&2
     exit 1
   fi

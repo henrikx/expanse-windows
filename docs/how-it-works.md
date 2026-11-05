@@ -81,6 +81,10 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   displays are off (`GUID_CONSOLE_DISPLAY_STATE`), window moves aren't followed: a monitor that
   drops out as it sleeps takes its windows with it, and the Mac once had macOS pile every parked
   window at one spot at the lock screen. Once you're back, every window goes back where it was.
+- **Closing and shutting down.** A window that closes keeps its spot in the saved layout (the newest
+  60, and not one open under 30 seconds, such as a splash screen), for its app to take when it next
+  starts. When Windows announces a shutdown (`WM_QUERYENDSESSION`) the layout is saved and saving
+  stops, so apps closing can't change it.
 
 ## Screens of every size
 
@@ -120,7 +124,7 @@ just started; a window a long-running app opens later is placed in free space be
 
 ## Updates
 
-Release builds check `api.github.com/repos/invig/expanse-windows/releases/latest` a minute after
+Release builds check `api.github.com/repos/henrikx/expanse-windows/releases/latest` a minute after
 launch and then once a day, download `Expanse-<version>-windows-<arm64|x64>.zip` for their own
 processor, and check it: the SHA-256 GitHub lists for the file, the version in the exe, and when
 the running copy is code-signed, the same publisher's signature (`WinVerifyTrust`). Installing
