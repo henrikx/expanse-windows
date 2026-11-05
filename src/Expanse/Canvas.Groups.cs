@@ -355,7 +355,6 @@ sealed partial class Canvas
         var area = new RectD(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
         var target = focus?.Maximised == true ? FocusCamera(focus)
             : new Camera(Groups.FocusOrigin(bounds, focus?.Frame, area), 1);
-        viewPlaced = true;
         gliding = true;
         hovered = null;
         hoveredGroup = null;

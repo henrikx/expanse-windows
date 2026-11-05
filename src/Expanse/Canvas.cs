@@ -31,10 +31,6 @@ sealed partial class Canvas
     readonly List<Request> idleWaiters = new();
     Camera camera = Camera.Identity;
     Camera? returnCamera;
-    /// You moved the view at 100% yourself (dragged or scrolled it): the windows you can see are
-    /// where you want them. Clicking one that's partly on screen focuses it there, and diving into
-    /// one on screen keeps the view (the Mac's viewPlaced). Any glide or zoom clears it.
-    bool viewPlaced;
     RECT monitor, work;
     bool active;   // the overlay is up: zoomed out, or mid-glide
     bool gliding;  // up only to glide/dive into a window; input waits until it's handed back
@@ -1161,12 +1157,8 @@ sealed partial class Canvas
         }
         // Focus on a dialog: whether the dialog is in view is what counts, and its owner comes too.
         var focused = w.Owned.FirstOrDefault(o => o.Hwnd == hwnd) ?? w;
-        bool returning = w.Hwnd == lastFocusedWindow;
         lastFocusedWindow = w.Hwnd;
-        if (returning || !settings.AutoCentre) return;
-        var r = camera.ToView(focused.Frame);
-        var screen = View.Inset(-1, -1);
-        if (r.X >= screen.X && r.Y >= screen.Y && r.Right <= screen.Right && r.Bottom <= screen.Bottom) return;
+        if (!settings.AutoCentre || InView(camera.ToView(focused.Frame))) return;
         // The key that closed it (Alt+F4, Ctrl+W) is still being let go for a moment: that's not
         // you picking another window.
         if (Environment.TickCount64 - lastGoneAt < 1500 && !InputSince(lastGoneAt + 300))
@@ -1177,13 +1169,7 @@ sealed partial class Canvas
             Log.Info($"{focused} got focus after a window went away; the view stays");
             return;
         }
-        if (viewPlaced && GoesOnScreen(r))
-        {
-            // Partly on screen, in a view you put there: it's the one you clicked, not one to go to.
-            Log.Info($"view placed by you: {focused} focused where it is");
-            return;
-        }
-        Log.Info($"focus went to {focused}, not fully on screen: glide to {w}");
+        Log.Info($"focus went to {focused}, its centre off screen: glide to {w}");
         Glide(w);
     }
 
@@ -1454,7 +1440,7 @@ sealed partial class Canvas
             case DragKind.Windows when click:
                 Log.Info($"click on {d.Clicked}");
                 selected.Clear();
-                Exit(d.Clicked);
+                Exit(d.Clicked, keepView: true);
                 break;
             case DragKind.Marquee when d.Moved:
                 Log.Info($"marquee: {selected.Count} selected");
@@ -1475,7 +1461,6 @@ sealed partial class Canvas
         CancelAnimation();
         camera.Pan(d);
         returnCamera = null;
-        viewPlaced = Math.Abs(camera.Scale - 1) < 0.001;
         if (drag == null) HoverAtCursor();
         Relayout();
     }
@@ -1485,7 +1470,6 @@ sealed partial class Canvas
         CancelAnimation();
         camera.Zoom(camera.Scale * factor, anchor);
         returnCamera = null;
-        viewPlaced = false;
         HoverAtCursor();
         Relayout();
     }
@@ -1533,7 +1517,6 @@ sealed partial class Canvas
     void GlideByWheel(Camera target, Vec? anchor)
     {
         returnCamera = null;
-        viewPlaced = false;
         Animate(target, WheelGlide, HoverAtCursor);
         animation!.Wheel = true;
         animation.Anchor = anchor;
@@ -1563,7 +1546,6 @@ sealed partial class Canvas
         var target = camera;
         target.Zoom(scale, new Vec(ViewSize.X / 2, ViewSize.Y / 2));
         returnCamera = null;
-        viewPlaced = false;
         Animate(target, 0.22);
     }
 
@@ -1592,14 +1574,8 @@ sealed partial class Canvas
 
     double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
 
-    /// Enough of a window on screen to count as one you can see (the Mac's goesOnScreen): its top
-    /// not above the screen, and at least 48 px of it in each direction.
-    bool GoesOnScreen(RectD r)
-    {
-        var x0 = Math.Max(r.X, 0); var x1 = Math.Min(r.Right, ViewSize.X);
-        var y0 = Math.Max(r.Y, 0); var y1 = Math.Min(r.Bottom, ViewSize.Y);
-        return r.Y >= -1 && x1 - x0 >= 48 && y1 - y0 >= 48;
-    }
+    /// A window whose centre is on screen is in view: going to it leaves the view where it is.
+    bool InView(RectD r) => View.Contains(r.Center);
 
     /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms in around the
     /// pointer, and out onto it (see ZoomOutBy); with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
@@ -2024,7 +2000,8 @@ sealed partial class Canvas
     }
 
     /// Back to 100%: on `focus` (centred in the work area), or where you were.
-    public void Exit(CanvasWindow? focus, double duration = 0.18)
+    /// `keepView`: a window you picked stays where it is, if it's in view at 100%.
+    public void Exit(CanvasWindow? focus, double duration = 0.18, bool keepView = false)
     {
         if (!active || (gliding && focus == null)) return;
         Camera target;
@@ -2032,17 +2009,12 @@ sealed partial class Canvas
         {
             BringToFront(focus);
             FitToScreen(focus);
-            if (viewPlaced && Math.Abs(camera.Scale - 1) < 0.001 && GoesOnScreen(camera.ToView(focus.Frame)))
+            if (keepView && Math.Abs(camera.Scale - 1) < 0.001 && InView(camera.ToView(focus.Frame)))
             {
-                // You put the view here: the window you picked is on screen, and the view stays.
-                Log.Info($"view placed by you: diving into {focus} where it is");
+                Log.Info($"{focus} in view: diving in where it is");
                 target = new Camera(new Vec(Math.Round(camera.Origin.X), Math.Round(camera.Origin.Y)), 1);
             }
-            else
-            {
-                viewPlaced = false;
-                target = FocusCamera(focus);
-            }
+            else target = FocusCamera(focus);
         }
         else target = returnCamera ?? Camera.Centered(camera.Center(ViewSize), 1, ViewSize);
         gliding = true;
@@ -2063,7 +2035,6 @@ sealed partial class Canvas
             Log.Info($"not gliding to {w}: a window is being dragged");
             return;
         }
-        viewPlaced = false;
         if (active) { Exit(w); return; }
         Enter(zoomOut: false, sync);
         Exit(w, 0.3);
@@ -2112,7 +2083,7 @@ sealed partial class Canvas
     }
 
     /// How long the overlay stays up after the windows have landed and focus has moved.
-    const int OverlayHoldMs = 50;
+    const int OverlayHoldMs = 80;
 
     /// A window at its spot, or just brought to the front, can still be painting: dropping the
     /// overlay straight away shows that for a frame or two.
@@ -2120,7 +2091,7 @@ sealed partial class Canvas
     {
         var start = Stopwatch.GetTimestamp();
         // DwmFlush can return early (composition paused), so no more than a few of them.
-        for (int frame = 0; frame < 12 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < OverlayHoldMs; frame++) Dwm.DwmFlush();
+        for (int frame = 0; frame < 30 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < OverlayHoldMs; frame++) Dwm.DwmFlush();
     }
 
     /// Moves every window to its camera spot (asynchronously: a hung app can't stall us).
@@ -2332,25 +2303,35 @@ sealed partial class Canvas
         Log.Info($"scaling {canvasDpi * 100 / 96}% -> {dpi * 100 / 96}%: canvas scaled by {r:0.###}");
     }
 
-    /// Up to ~10 frames for the windows that will be in view to reach their spots, so the
+    /// Up to MovesWaitMs for the windows to reach their spots, or leave the screen, so the
     /// overlay doesn't drop on a window still on its way.
     int WaitForMoves()
     {
-        var inView = windows.Where(w => camera.ToView(w.Frame).Intersects(View) && w.Placed != null).ToList();
+        var start = Stopwatch.GetTimestamp();
+        var sent = windows.SelectMany(w => w.WithOwned()).Where(w => w.Placed != null).ToList();
+        // Going out of view counts too: Lift brought it onto the screen, and a slow app would still
+        // be showing there when the overlay drops. Off the main screen is far enough for that.
         bool Landed(CanvasWindow w)
         {
+            if (!IsWindow(w.Hwnd) || !IsWindowVisible(w.Hwnd) || IsHungAppWindow(w.Hwnd)) return true;
             var f = Dwm.FrameBounds(w.Hwnd);
-            return !IsWindow(w.Hwnd) || (f.Left == w.Placed!.Value.X && f.Top == w.Placed.Value.Y);
+            if (f.Left == w.Placed!.Value.X && f.Top == w.Placed.Value.Y) return true;
+            return !camera.ToView(w.Frame).Intersects(View) && !OnMainScreen(f);
         }
-        for (int frame = 0; frame < 10; frame++)
+        // DwmFlush can return early (composition paused), so frames are capped as well as time.
+        int frame = 0;
+        for (; frame < 60 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < MovesWaitMs; frame++)
         {
-            if (inView.All(Landed)) return frame;
+            if (sent.All(Landed)) return frame;
             Dwm.DwmFlush();
         }
-        var late = inView.Where(w => !Landed(w)).Select(w => $"{w} at {Dwm.FrameBounds(w.Hwnd).ToRectD()}, not {w.Placed!.Value.X},{w.Placed.Value.Y}");
-        Log.Info($"hand-back: still moving after 10 frames: {string.Join("; ", late)}");
-        return 10;
+        var late = sent.Where(w => !Landed(w)).Select(w => $"{w} at {Dwm.FrameBounds(w.Hwnd).ToRectD()}, not {w.Placed!.Value.X},{w.Placed.Value.Y}").ToList();
+        if (late.Count > 0) Log.Info($"hand-back: still moving after {frame} frames: {string.Join("; ", late)}");
+        return frame;
     }
+
+    /// The longest the overlay waits for slow apps to move, so one that won't can't hold it up for long.
+    const int MovesWaitMs = 200;
 
     /// Makes `hwnd` the foreground window. Windows only lets the foreground process (or the
     /// one that got the last input) do that: a hotkey or a click on the overlay qualifies. If
@@ -2732,7 +2713,7 @@ sealed partial class Canvas
                 {
                     case VK_ESCAPE when selected.Count > 0: selected.Clear(); Redraw(); break;
                     case VK_ESCAPE: Exit(null); break;
-                    case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1]); break;
+                    case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1], keepView: true); break;
                     case VK_SPACE:
                         if (spaceHeld) break;
                         spaceHeld = true;

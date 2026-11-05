@@ -79,7 +79,7 @@ sealed partial class Canvas
         searchBox.Close();
         selected.Clear();
         if (GroupOf(row) is CanvasGroup g) FocusGroup(g);
-        else if (WindowOf(row) is CanvasWindow w) Exit(w);
+        else if (WindowOf(row) is CanvasWindow w) Exit(w, keepView: true);
     }
 
     void OpenSearch()

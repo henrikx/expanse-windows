@@ -46,9 +46,9 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
 
 - **Window events** come from `SetWinEventHook`, out of context, on the UI thread. Comings, goings
   and moves are gathered into one sync 50 ms after the last of them; focus acts where it settles,
-  120 ms later. A window that gets focus while it isn't fully on screen (the taskbar, Alt-Tab, an
-  app bringing it forward) is glided to: the Mac's auto-centre. Focus coming back to the window you
-  were in, or handed on by Windows after you close or minimise one, doesn't count.
+  120 ms later. A window that gets focus with its centre off screen (a click, the taskbar, Alt-Tab,
+  an app bringing it forward) is glided to: the Mac's auto-centre. Focus handed on by Windows after
+  you close or minimise one doesn't count.
 - **Focus** is set directly where Windows allows it; where it doesn't (another app is in front),
   a null key press, then an Alt tap, then `AttachThreadInput`.
 - **The empty desktop** is watched by a low-level mouse hook on its own thread: a click there zooms
