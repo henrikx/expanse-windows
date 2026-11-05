@@ -8,6 +8,16 @@
 >   canvas, dragging on empty canvas selects windows, and Tidy Up is <kbd>Ctrl</kbd> + <kbd>T</kbd>.
 > - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
 >   hot corners only count on the main screen.
+> - **Fixes.**
+>   - Windows moved to another monitor stay there instead of being pulled back onto the canvas.
+>   - Windows too wide for the other monitor can now leave the canvas.
+>   - Windows can be dragged in from another monitor while the canvas is open.
+>   - Canvas windows reaching onto another monitor no longer cover that monitor's own windows.
+>   - Busy apps, such as Firefox, no longer jump to a different spot on the canvas after a glide.
+>   - The view no longer glides away while you're dragging a window.
+>   - Moving the canvas with the middle button no longer sticks when the button is let go quickly.
+>   - The tray menu stays open while the canvas is closed.
+>   - Less flashing when leaving the canvas.
 >
 > The download links below are for this fork's releases. These are development builds, so the
 > built-in updater won't update them.
