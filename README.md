@@ -9,8 +9,8 @@
 > - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
 >   hot corners only count on the main screen.
 >
-> The download links below and the built-in updater still point to the original project, so build
-> from source to run this fork. An update from there would replace it.
+> The download links below are for this fork's releases. The built-in updater still points to the
+> original project, and an update from there would replace this fork.
 
 <p align="center">
   <img src="docs/images/preview.jpg" alt="Expanse for Windows, zoomed out: six windows on one canvas with their names above them, the one under the pointer ringed, and the Desktops panel and minimap in the bottom-right corner" width="900">
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/invig/expanse-windows/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://github.com/henrikx/expanse-windows/releases/latest"><strong>Download</strong></a> ·
   <a href="#install">Install</a> ·
   <a href="#the-basics">How to use it</a> ·
   <a href="#questions">Questions</a> ·
@@ -54,11 +54,9 @@ rules line for line.
 
 ## Install
 
-[Download the latest version](https://github.com/invig/expanse-windows/releases/latest): **x64**
-for most PCs, **arm64** for Windows on Arm (Snapdragon laptops, Surface Pro X). Unzip it into a
-folder of your own, somewhere in your user folder rather than Program Files so Expanse can update
-itself, and run **Expanse.exe**. It's a single file with nothing else to install, runs on
-Windows 11, and keeps itself up to date.
+[Download **Expanse.exe** from the latest release](https://github.com/henrikx/expanse-windows/releases/latest),
+put it in a folder of your own and run it. It's a single file with nothing else to install, and
+runs on Windows 11.
 
 Expanse isn't code-signed yet, so the first time, Windows may say *Windows protected your PC*:
 choose **More info**, then **Run anyway**.
