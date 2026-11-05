@@ -1873,6 +1873,7 @@ sealed partial class Canvas
             if (active) { pictures.SetDesktop(settings.Wallpaper ? monitor : null); Redraw(); }
         }, settings.Wallpaper),
         new("Show Window Names", () => { settings.ShowNames = !settings.ShowNames; settings.Save(); }, settings.ShowNames),
+        new($"Group Selection Zoom ({(settings.GroupClickZoom > 0 ? $"{settings.GroupClickZoom}%" : "Off")})…", ChooseGroupZoom),
         new("Hot Corner", null, Children: HotCorner.Choices.Select(c => (Tray.Item?)new Tray.Item(c.title, () =>
         {
             settings.HotCorner = c.key;

@@ -42,6 +42,10 @@ sealed class Settings
     /// The update the tray icon last said was ready (said once per version).
     public string? UpdateNoted { get; set; }
 
+    /// Group Selection Zoom: at this zoom or lower a click on an app in a group goes to the group,
+    /// and the boxes turn dark (see Canvas.GroupsTakeClicks). 0 turns it off.
+    public int GroupClickZoom { get; set; } = 50;
+
     static string File => Path.Combine(Log.Folder, "settings.json");
 
     public static Settings Load()

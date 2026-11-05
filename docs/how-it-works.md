@@ -71,7 +71,7 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
 - **Groups** are boxes in canvas space, drawn behind the pictures. Membership is never stored: an
   app whose centre is inside a box is in it. The rules are plain geometry in `src/Layout/Groups.cs`,
   tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows
-  can use it later. Tidy Up and fitting to a screen treat each group as one block. At 35% zoom or
+  can use it later. Tidy Up and fitting to a screen treat each group as one block. At the Group Selection Zoom (50% to begin with) or
   less a click on an app goes to its group (`GroupTakingClick`), and only a drag raises it. The rename box
   is a popup owned by the overlay, because the visual tree covers the overlay's child windows.
 - **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes, and is

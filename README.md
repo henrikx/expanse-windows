@@ -116,7 +116,7 @@ start it with Windows.
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
-| Click an app in a group, at 50% zoom or less (the groups' boxes turn more solid) · right-click one at any zoom | Go to the group, not just that app |
+| Click an app in a group, at 50% zoom or less (the groups' boxes turn dark; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |

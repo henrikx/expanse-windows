@@ -147,17 +147,29 @@ sealed partial class Canvas
         return null;
     }
 
-    /// Zoomed out this far (as the minimap rounds it) a group's apps are too small to aim at: a
-    /// click on one goes to its group. Dragging one, Shift and its × still work.
-    const int GroupClickZoom = 50;
-
     /// The group a click on this window goes to instead of the window, if any.
     CanvasGroup? GroupTakingClick(CanvasWindow w) => GroupsTakeClicks ? GroupHolding(w) : null;
 
-    bool GroupsTakeClicks => Math.Round(camera.Scale * 100) <= GroupClickZoom;
+    /// Zoomed out this far (Group Selection Zoom, as the minimap rounds it) a group's apps are too
+    /// small to aim at: a click on one goes to its group. Dragging one, Shift and its × still work.
+    bool GroupsTakeClicks => Math.Round(camera.Scale * 100) <= Math.Clamp(settings.GroupClickZoom, 0, 99);
+
+    /// Group Selection Zoom…: asks, and the boxes fade to suit straight away if the canvas is up.
+    void ChooseGroupZoom()
+    {
+        if (GroupZoomDialog.Ask(settings.GroupClickZoom) is int zoom)
+        {
+            settings.GroupClickZoom = zoom;
+            settings.Save();
+            Log.Info($"group selection zoom: {zoom}%");
+        }
+        if (!active) return;
+        Focus(overlay.Hwnd);
+        Redraw();
+    }
 
     /// How solid the groups' boxes look, from 0 (a click on an app goes to the app) to 1 (to its
-    /// group). It fades, so the eye catches the zoom crossing GroupClickZoom.
+    /// group). It fades, so the eye catches the zoom crossing the setting.
     double groupSolidity;
     long groupSolidityAt;
     const double GroupSolidityFade = 0.15;
