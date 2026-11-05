@@ -955,6 +955,7 @@ sealed partial class Canvas
         switch (ev)
         {
             case EVENT_SYSTEM_FOREGROUND:
+                focusChangedAt = Environment.TickCount64;
                 SetTimer(overlay.Hwnd, FocusTimer, 120, 0);
                 break;
             case EVENT_OBJECT_NAMECHANGE:
@@ -966,6 +967,7 @@ sealed partial class Canvas
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
                 userMoving = hwnd;
+                moveStart = (hwnd, Dwm.FrameBounds(hwnd), Environment.TickCount64);
                 crossingWindow = monitor.ToRectD().Contains(Dwm.FrameBounds(hwnd).ToRectD().Center) ? hwnd : 0;
                 NoteUserDrag("start", hwnd);
                 if (active && !gliding && elsewhere.Contains(hwnd)) StartDragIn(hwnd);
@@ -1019,6 +1021,23 @@ sealed partial class Canvas
     /// a window mostly on another monitor, which then stays on the canvas even if you grab it.
     /// Kept until the sync after the drag ends has looked at it.
     nint crossingWindow;
+
+    /// Where the last window dragged by its title bar or edge was when that began.
+    (nint hwnd, RECT bounds, long at) moveStart;
+    long focusChangedAt;
+    /// The window whose focus is waiting for the mouse buttons to be let go (see FocusSettled).
+    nint waitingForRelease;
+
+    static bool ButtonHeld => GetAsyncKeyState(VK_LBUTTON) < 0 || GetAsyncKeyState(VK_RBUTTON) < 0 || GetAsyncKeyState(VK_MBUTTON) < 0;
+
+    /// The press that gave `hwnd` focus went on to move or resize it. A press on a title bar counts
+    /// as starting a drag even if it's only a click, so it's where the window ended up that tells.
+    bool MovedSinceFocus(nint hwnd)
+    {
+        if (moveStart.hwnd != hwnd || moveStart.at < focusChangedAt - 500) return false;
+        RECT was = moveStart.bounds, now = Dwm.FrameBounds(hwnd);
+        return was.Left != now.Left || was.Top != now.Top || was.Right != now.Right || was.Bottom != now.Bottom;
+    }
 
     /// A drag that's still going: the left button's check is for one whose end we never heard of.
     bool UserDragging => userMoving != 0 && GetAsyncKeyState(VK_LBUTTON) < 0;
@@ -1185,6 +1204,21 @@ sealed partial class Canvas
             // wherever that is. The view stays where you were; going to it looked like a window
             // reopening.
             Log.Info($"{focused} got focus after a window went away; the view stays");
+            return;
+        }
+        // Not under the pointer while a button's down: you may be dragging something. The window
+        // you moved yourself is where you wanted it, so that one stays when you let go.
+        if (ButtonHeld)
+        {
+            if (waitingForRelease != hwnd) Log.Info($"focus went to {focused}: waiting for the mouse button");
+            waitingForRelease = hwnd;
+            SetTimer(overlay.Hwnd, FocusTimer, 30, 0);
+            return;
+        }
+        waitingForRelease = 0;
+        if (MovedSinceFocus(hwnd))
+        {
+            Log.Info($"{focused} was moved by hand as it got focus; the view stays");
             return;
         }
         Log.Info($"focus went to {focused}, {Layout.HiddenShare(camera.ToView(focused.Frame), WorkView):P0} hidden: glide to {w}");
@@ -1460,7 +1494,7 @@ sealed partial class Canvas
             case DragKind.Windows when click:
                 Log.Info($"click on {d.Clicked}");
                 selected.Clear();
-                if (GroupTakingClick(d.Clicked!) is CanvasGroup clickedGroup) FocusGroup(clickedGroup);
+                if (GroupTakingClick(d.Clicked!) is CanvasGroup clickedGroup) FocusGroup(clickedGroup, d.Clicked);
                 else Exit(d.Clicked, keepView: true);
                 break;
             case DragKind.Marquee when d.Moved:

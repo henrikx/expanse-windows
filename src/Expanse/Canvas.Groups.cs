@@ -277,7 +277,7 @@ sealed partial class Canvas
         renameBox.Finish(save: true, byKey: false);
         searchBox.Close();
         selected.Clear();
-        FocusGroup(g);
+        FocusGroup(g, w);
     }
 
     /// The New Group button, which sits over everything. True if the press was on it.
@@ -410,13 +410,14 @@ sealed partial class Canvas
         .Where(m => windows.Contains(m.w))
         .ToDictionary(m => windows.IndexOf(m.w), m => GroupFrame(m.w) with { X = m.start.X, Y = m.start.Y });
 
-    /// A click on a group: back to 100% with its apps centred, as many as fit on screen, and the
-    /// one you used last whole and focused. You put the view here, so clicking one of the others
-    /// that's cut off won't send it elsewhere (see FocusSettled).
-    void FocusGroup(CanvasGroup g)
+    /// A click on a group: back to 100% with its apps centred, as many as fit on screen, and
+    /// `clicked` (the app the click landed on, if any; otherwise the one you used last) whole and
+    /// focused. You put the view here, so clicking one of the others that's cut off won't send it
+    /// elsewhere (see FocusSettled).
+    void FocusGroup(CanvasGroup g, CanvasWindow? clicked = null)
     {
         var members = MembersOf(g);
-        var focus = CanvasWindowOf(previousForeground) is CanvasWindow last && members.Contains(last) ? last : members.LastOrDefault();
+        var focus = clicked ?? (CanvasWindowOf(previousForeground) is CanvasWindow last && members.Contains(last) ? last : members.LastOrDefault());
         if (focus != null)
         {
             BringToFront(focus);
