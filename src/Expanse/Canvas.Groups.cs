@@ -157,7 +157,10 @@ sealed partial class Canvas
     /// Group Selection Zoom…: asks, and the boxes fade to suit straight away if the canvas is up.
     void ChooseGroupZoom()
     {
-        if (GroupZoomDialog.Ask(settings.GroupClickZoom) is int zoom)
+        // At most 99: 100 would take every click on a grouped app.
+        if (PercentDialog.Ask("Group Selection Zoom",
+            "At this zoom or lower, clicking an app in a group goes to the group, and the group's box turns dark.",
+            "Zoom, 0 to 99 (0 turns it off):", Math.Clamp(settings.GroupClickZoom, 0, 99), 0, 99) is int zoom)
         {
             settings.GroupClickZoom = zoom;
             settings.Save();

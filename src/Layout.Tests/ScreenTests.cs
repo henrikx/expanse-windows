@@ -23,5 +23,24 @@ static class ScreenTests
         Is("reaching the main screen with its centre on neither", new(-300, 880, 800, 300), false);
         expect("screens: no other monitors, nothing is elsewhere", !Screens.IsElsewhere(new(-9000, 0, 100, 100), main, []), "");
         expect("screens: centre on neither isn't a centre elsewhere", !Screens.CentreElsewhere(new(-1000, 800, 400, 300), main, left), "");
+
+        void Hidden(string name, RectD f, int percent, bool want) =>
+            expect($"hidden: {name}", Layout.HiddenEnough(f, main, percent) == want, $"want {want} at {percent}% for {f}: {Layout.HiddenShare(f, main):P2}");
+
+        Hidden("wholly on screen isn't hidden", new(100, 100, 800, 600), 1, false);
+        Hidden("exactly the percentage counts", new(-240, 100, 800, 600), 30, true);
+        Hidden("just under the percentage doesn't", new(-239, 100, 800, 600), 30, false);
+        Hidden("the default takes a quarter", new(-200, 100, 800, 600), 25, true);
+        Hidden("the default leaves a fifth", new(-160, 100, 800, 600), 25, false);
+        Hidden("off past a corner goes by area: 30% each way is 51%", new(-240, -180, 800, 600), 51, true);
+        Hidden("off past a corner, not more than the area", new(-240, -180, 800, 600), 52, false);
+        Hidden("100% takes a window wholly off screen", new(3000, 100, 800, 600), 100, true);
+        Hidden("100% leaves a window with a sliver showing", new(1919, 100, 800, 600), 100, false);
+        Hidden("too big, centred, showing all it can", new(-100, -100, 2120, 1280), 1, false);
+        Hidden("too wide, showing all it can", new(-100, 100, 2120, 600), 1, false);
+        Hidden("too big and off to one side counts what could fit", new(960, 0, 2120, 1280), 50, true);
+        Hidden("too big, off to one side, less than the percentage", new(960, 0, 2120, 1280), 51, false);
+        Hidden("a percentage below 1 is 1", new(100, 100, 800, 600), 0, false);
+        expect("hidden: a window with no size has nothing hidden", Layout.HiddenShare(new(3000, 100, 0, 0), main) == 0, "");
     }
 }

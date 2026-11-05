@@ -337,6 +337,23 @@ public static class Layout
         }
     }
 
+    // MARK: Going to a window
+
+    /// How much of `frame` is hidden outside `view`, from 0 to 1, by area. A window too big for
+    /// the view counts only what could have fit, so one showing as much as it can has nothing hidden.
+    public static double HiddenShare(RectD frame, RectD view)
+    {
+        double most = Math.Min(frame.W, view.W) * Math.Min(frame.H, view.H);
+        if (most <= 0) return 0;
+        double seen = Math.Max(0, Math.Min(frame.Right, view.Right) - Math.Max(frame.X, view.X))
+            * Math.Max(0, Math.Min(frame.Bottom, view.Bottom) - Math.Max(frame.Y, view.Y));
+        return Math.Clamp(1 - seen / most, 0, 1);
+    }
+
+    /// Whether a window with focus is hidden enough, `percent` or more (1 to 100), to be centred.
+    public static bool HiddenEnough(RectD frame, RectD view, int percent) =>
+        HiddenShare(frame, view) * 100 >= Math.Clamp(percent, 1, 100) - 1e-9;
+
     // MARK: New windows
 
     /// A canvas position for a window of `size` that overlaps none of `others`. First anywhere

@@ -4,45 +4,46 @@ using static Expanse.Native.User32;
 
 namespace Expanse;
 
-/// Asks for the zoom at which clicks start going to groups (see Canvas.GroupsTakeClicks). Drawn as
-/// Welcome is, with a plain text box for the number. Modal, as a message box is: it runs messages
-/// itself until it's answered.
-static class GroupZoomDialog
+/// Asks for a percentage on the tray menu's behalf (Group Selection Zoom, Auto-Centre When Hidden).
+/// Drawn as Welcome is, with a plain text box for the number. Modal, as a message box is: it runs
+/// messages itself until it's answered.
+static class PercentDialog
 {
     const uint WS_BORDER = 0x800000, WS_CLIPCHILDREN = 0x2000000, ES_CENTER = 0x1, ES_NUMBER = 0x2000,
         EM_LIMITTEXT = 0xC5, EM_SETSEL = 0xB1, WM_SETFONT = 0x30;
-    const string Title = "Group Selection Zoom";
-    const string Explanation = "At this zoom or lower, clicking an app in a group goes to the group, and the group's box turns dark.";
-    const string Prompt = "Zoom, 0 to 99 (0 turns it off):";
 
     static nint hwnd, edit;
     static WndProc? proc; // kept alive: Windows holds a pointer to it
     static RECT ok, cancel;
     static int? answer;
+    static string explanation = "", prompt = "";
+    static int lowest, highest;
 
-    /// The zoom chosen, or null if it was cancelled (or the dialog is already up).
-    public static int? Ask(int current)
+    /// The number chosen, from `min` to `max`, or null if it was cancelled (or the dialog is
+    /// already up).
+    public static int? Ask(string title, string about, string question, int current, int min, int max)
     {
         if (hwnd != 0 && IsWindow(hwnd))
         {
             SetForegroundWindow(hwnd);
             return null;
         }
+        (explanation, prompt, lowest, highest) = (about, question, min, max);
         proc ??= WindowProc;
-        var instance = RegisterWindowClass("ExpanseGroupZoom", proc);
+        var instance = RegisterWindowClass("ExpansePercent", proc);
         var (_, work) = PrimaryMonitor();
         double k = PrimaryDpi() / 96.0;
         int S(double v) => (int)Math.Round(v * k);
         int w = S(420), h = S(230);
-        hwnd = CreateWindowEx((uint)WS_EX_TOPMOST, "ExpanseGroupZoom", Title, 0x00C00000 | 0x00080000 | WS_CLIPCHILDREN, // caption, system menu
+        hwnd = CreateWindowEx((uint)WS_EX_TOPMOST, "ExpansePercent", title, 0x00C00000 | 0x00080000 | WS_CLIPCHILDREN, // caption, system menu
             work.Left + (work.Width - w) / 2, work.Top + (work.Height - h) / 2, w, h, 0, 0, instance, 0);
-        if (hwnd == 0) { Log.Info("group zoom: couldn't open"); return null; }
+        if (hwnd == 0) { Log.Info($"{title}: couldn't open"); return null; }
         GetClientRect(hwnd, out var rc);
         edit = CreateWindowEx(0, "EDIT", current.ToString(), unchecked((uint)WS_CHILD | (uint)WS_VISIBLE) | WS_BORDER | ES_CENTER | ES_NUMBER,
             rc.Width - S(24) - S(64), S(86), S(64), S(28), hwnd, 0, instance, 0);
         nint font = Gdi32.CreateFont(-S(14), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         SendMessage(edit, WM_SETFONT, font, 1);
-        SendMessage(edit, EM_LIMITTEXT, 2, 0); // two digits: 100 would take every click on a grouped app
+        SendMessage(edit, EM_LIMITTEXT, max.ToString().Length, 0);
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetForegroundWindow(hwnd);
         SetFocus(edit);
@@ -68,17 +69,19 @@ static class GroupZoomDialog
         return answer;
     }
 
-    /// OK: closes with the number typed; an empty box stays open for one.
+    /// OK: closes with the number typed; an empty box, or a number out of range, stays open for
+    /// another.
     static void Accept()
     {
-        var text = new StringBuilder(4);
+        var text = new StringBuilder(8);
         GetWindowText(edit, text, text.Capacity);
-        if (!int.TryParse(text.ToString(), out int zoom))
+        if (!int.TryParse(text.ToString(), out int number) || number < lowest || number > highest)
         {
             SetFocus(edit);
+            SendMessage(edit, EM_SETSEL, 0, -1);
             return;
         }
-        answer = zoom;
+        answer = number;
         DestroyWindow(hwnd);
     }
 
@@ -127,10 +130,10 @@ static class GroupZoomDialog
 
         Gdi32.SetTextColor(hdc, Gdi32.RGB(100, 100, 108));
         var about = new RECT(x, S(20), right, S(78));
-        DrawText(hdc, Explanation, -1, ref about, DT_WORDBREAK | DT_NOPREFIX);
+        DrawText(hdc, explanation, -1, ref about, DT_WORDBREAK | DT_NOPREFIX);
         Gdi32.SetTextColor(hdc, Gdi32.RGB(28, 28, 30));
-        var prompt = new RECT(x, S(86), right - S(64) - S(8), S(114));
-        DrawText(hdc, Prompt, -1, ref prompt, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        var question = new RECT(x, S(86), right - S(64) - S(8), S(114));
+        DrawText(hdc, prompt, -1, ref question, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
 
         int bw = S(84), bh = S(32), top = rc.Height - S(20) - bh;
         ok = new RECT(right - bw, top, right, top + bh);

@@ -1122,9 +1122,9 @@ sealed partial class Canvas
         Relayout();
     }
 
-    /// A window got focus at 100%. If it isn't fully on screen (picked from the taskbar or
-    /// Alt-Tab while parked, say), glide to it: the Mac's auto-centre. Not when focus comes back
-    /// to the window you were already in, from the taskbar, tray or Start menu: on the Mac,
+    /// A window got focus at 100%. If enough of it is off screen (Auto-Centre When Hidden; picked
+    /// from the taskbar or Alt-Tab while parked, say), glide to it: the Mac's auto-centre. Not when
+    /// focus comes back to the window you were already in, from the taskbar, tray or Start menu: on the Mac,
     /// clicking the menu bar never took focus away in the first place.
     ///
     /// What counts is the window in front once focus has settled, not the last event's: a click
@@ -1176,7 +1176,7 @@ sealed partial class Canvas
         // Focus on a dialog: whether the dialog is in view is what counts, and its owner comes too.
         var focused = w.Owned.FirstOrDefault(o => o.Hwnd == hwnd) ?? w;
         lastFocusedWindow = w.Hwnd;
-        if (!settings.AutoCentre || InView(camera.ToView(focused.Frame))) return;
+        if (!settings.AutoCentre || !Layout.HiddenEnough(camera.ToView(focused.Frame), WorkView, settings.AutoCentreHidden)) return;
         // The key that closed it (Alt+F4, Ctrl+W) is still being let go for a moment: that's not
         // you picking another window.
         if (Environment.TickCount64 - lastGoneAt < 1500 && !InputSince(lastGoneAt + 300))
@@ -1187,7 +1187,7 @@ sealed partial class Canvas
             Log.Info($"{focused} got focus after a window went away; the view stays");
             return;
         }
-        Log.Info($"focus went to {focused}, its centre off screen: glide to {w}");
+        Log.Info($"focus went to {focused}, {Layout.HiddenShare(camera.ToView(focused.Frame), WorkView):P0} hidden: glide to {w}");
         Glide(w);
     }
 
@@ -1596,8 +1596,14 @@ sealed partial class Canvas
 
     double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
 
-    /// A window whose centre is on screen is in view: going to it leaves the view where it is.
-    bool InView(RectD r) => View.Contains(r.Center);
+    /// Picking a window at 100% leaves the view where it is: as Auto-Centre When Hidden says, the
+    /// same as focus on it outside the canvas. With Auto-Centre off, as long as its centre is on screen.
+    bool StaysInView(RectD r) => settings.AutoCentre
+        ? !Layout.HiddenEnough(r, WorkView, settings.AutoCentreHidden)
+        : View.Contains(r.Center);
+
+    /// The part of the view that isn't under the taskbar, where going to a window centres it.
+    RectD WorkView => new(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
 
     /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms in around the
     /// pointer, and out onto it (see ZoomOutBy); with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
@@ -1866,6 +1872,7 @@ sealed partial class Canvas
         null,
         new("Centre Current Window\tCtrl+Alt+C", CentreCurrentWindow, Enabled: !paused),
         new("Auto-Centre Focused Window\tCtrl+Alt+Shift+`", ToggleAutoCentre, settings.AutoCentre),
+        new($"Auto-Centre When Hidden ({Math.Clamp(settings.AutoCentreHidden, 1, 100)}%)…", ChooseAutoCentreHidden, Enabled: settings.AutoCentre),
         new("Desktop Picture Background", () =>
         {
             settings.Wallpaper = !settings.Wallpaper;
@@ -2023,7 +2030,7 @@ sealed partial class Canvas
     }
 
     /// Back to 100%: on `focus` (centred in the work area), or where you were.
-    /// `keepView`: a window you picked stays where it is, if it's in view at 100%.
+    /// `keepView`: a window you picked stays where it is, if it's in view at 100% (StaysInView).
     public void Exit(CanvasWindow? focus, double duration = 0.18, bool keepView = false)
     {
         if (!active || (gliding && focus == null)) return;
@@ -2032,7 +2039,7 @@ sealed partial class Canvas
         {
             BringToFront(focus);
             FitToScreen(focus);
-            if (keepView && Math.Abs(camera.Scale - 1) < 0.001 && InView(camera.ToView(focus.Frame)))
+            if (keepView && Math.Abs(camera.Scale - 1) < 0.001 && StaysInView(camera.ToView(focus.Frame)))
             {
                 Log.Info($"{focus} in view: diving in where it is");
                 target = new Camera(new Vec(Math.Round(camera.Origin.X), Math.Round(camera.Origin.Y)), 1);
@@ -3293,6 +3300,21 @@ sealed partial class Canvas
     }
 
     /// Ctrl+Alt+Shift+`, or the tray: auto-centring on or off (off suits side-by-side work).
+    void ChooseAutoCentreHidden()
+    {
+        if (PercentDialog.Ask("Auto-Centre When Hidden",
+            "When a window gets focus with at least this much of it off screen, the view glides to centre it. With less hidden, the view stays.",
+            "Share of the window hidden, 1 to 100:", Math.Clamp(settings.AutoCentreHidden, 1, 100), 1, 100) is int percent)
+        {
+            settings.AutoCentreHidden = percent;
+            settings.Save();
+            Log.Info($"auto-centre when hidden: {percent}%");
+        }
+        if (!active) return;
+        Focus(overlay.Hwnd);
+        Redraw();
+    }
+
     void ToggleAutoCentre()
     {
         settings.AutoCentre = !settings.AutoCentre;

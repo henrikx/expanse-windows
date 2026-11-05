@@ -154,7 +154,8 @@ names and window titles: start typing anywhere on the canvas, then use <kbd>↑<
 press <kbd>Ctrl</kbd> + <kbd>F</kbd> first.
 
 **The tray icon** has the rest. Click it to zoom out; right-click for Pause, Tidy Up, Centre
-Current Window, Restore Layout, Restore All Windows, which corners to use, window names, the
+Current Window, how much of a window must be off screen for focus to centre it (Auto-Centre When
+Hidden), Restore Layout, Restore All Windows, which corners to use, window names, the
 desktop picture, Include Admin Windows, Welcome & Shortcuts, updates, Open at Login, and
 Troubleshooting (logs for a bug report).
 

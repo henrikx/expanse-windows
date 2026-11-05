@@ -5,9 +5,13 @@ namespace Expanse;
 /// The choices on the tray menu, kept in %LOCALAPPDATA%\Expanse\settings.json.
 sealed class Settings
 {
-    /// A window that gets focus while it isn't fully on screen (from the taskbar, Alt-Tab, or an
-    /// app) glides into view, as on the Mac.
+    /// A window that gets focus while it's partly off screen (from a click, the taskbar, Alt-Tab,
+    /// or an app) glides into view, as on the Mac.
     public bool AutoCentre { get; set; } = true;
+
+    /// Auto-Centre When Hidden: how much of a window, as a percentage of its area from 1 to 100,
+    /// must be off screen for focus on it to glide there (see Layout.HiddenEnough).
+    public int AutoCentreHidden { get; set; } = 25;
 
     /// The desktop picture behind the canvas; off, a plain dark background.
     public bool Wallpaper { get; set; } = true;
