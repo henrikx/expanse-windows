@@ -72,11 +72,15 @@ static class TreeTests
 
         // --- Where things are ---
         var view = new Vec(1920, 1080);
-        var panel = GroupTree.Panel(view, 1);
+        var panel = GroupTree.Panel(view, 1, 1000);
         Is("panel: on the right, with its margin", panel.Right == 1920 - GroupTree.Margin && panel.W == GroupTree.Width);
-        Is("panel: stops above the minimap", panel.Bottom == 1080 - GroupTree.Margin - GroupTree.BottomReserve);
+        Is("panel: a long list stops above the minimap", panel.Bottom == 1080 - GroupTree.Margin - GroupTree.BottomReserve);
         Is("panel: at the top", panel.Y == GroupTree.Margin);
-        Is("panel: follows the display's scale", GroupTree.Panel(view, 2).W == 2 * GroupTree.Width);
+        Is("panel: follows the display's scale", GroupTree.Panel(view, 2, 3).W == 2 * GroupTree.Width);
+        var shortPanel = GroupTree.Panel(view, 1, 3);
+        Is("panel: as long as a short list", GroupTree.ListRect(shortPanel, 1).H == 3 * GroupTree.RowHeight && shortPanel.Y == GroupTree.Margin);
+        Is("panel: as long at any display scale", GroupTree.ListRect(GroupTree.Panel(view, 2, 3), 2).H == 6 * GroupTree.RowHeight);
+        Is("panel: no rows leave room for the message", GroupTree.ListRect(GroupTree.Panel(view, 1, 0), 1).H == GroupTree.RowHeight);
         var search = GroupTree.SearchRect(panel, 1);
         Is("search: at the top of the panel", panel.Contains(search) && search.Y - panel.Y < 20);
         var list = GroupTree.ListRect(panel, 1);

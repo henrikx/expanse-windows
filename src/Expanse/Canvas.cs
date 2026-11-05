@@ -1347,7 +1347,8 @@ sealed partial class Canvas
             }
             List<CanvasWindow> group = InGroup(w) ? windows.Where(selected.Contains).ToList() : [w];
             if (group.Count == 1) selected.Clear();
-            foreach (var g in group) BringToFront(g);
+            // A click that goes to the group leaves the stack alone: a drag raises them when it starts.
+            if (GroupTakingClick(w) == null) foreach (var g in group) BringToFront(g);
             drag = new Drag(DragKind.Windows, p) { Clicked = w, Moving = group.Select(g => (g, g.Frame)).ToList() };
         }
         else if (!ctrl && !shift && GroupHitAt(p) is (CanvasGroup hitGroup, GroupPart part, ResizeEdges edges))
@@ -1399,6 +1400,7 @@ sealed partial class Canvas
             }
         }
         if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return;
+        if (!d.Moved) foreach (var raised in d.Moving) BringToFront(raised.w);
         d.Moved = true;
         var bounds = d.Moving.Skip(1).Aggregate(d.Moving[0].start, (b, m) => b.Union(m.start));
         var proposed = bounds.Offset(new Vec((p.X - d.StartPoint.X) / camera.Scale, (p.Y - d.StartPoint.Y) / camera.Scale));
@@ -1440,7 +1442,8 @@ sealed partial class Canvas
             case DragKind.Windows when click:
                 Log.Info($"click on {d.Clicked}");
                 selected.Clear();
-                Exit(d.Clicked, keepView: true);
+                if (GroupTakingClick(d.Clicked!) is CanvasGroup clickedGroup) FocusGroup(clickedGroup);
+                else Exit(d.Clicked, keepView: true);
                 break;
             case DragKind.Marquee when d.Moved:
                 Log.Info($"marquee: {selected.Count} selected");
@@ -1570,6 +1573,7 @@ sealed partial class Canvas
         GetCursorPos(out var p);
         var at = new Vec(p.X - monitor.Left, p.Y - monitor.Top);
         hovered = TreePanel.Contains(at) ? null : WindowAt(at);
+        if (!TreePanel.Contains(at)) HoverGroup(at, hovered);
     }
 
     double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
@@ -2614,6 +2618,15 @@ sealed partial class Canvas
             }
             case WM_LBUTTONUP:
                 EndDrag(click: true);
+                return 0;
+            case WM_RBUTTONDOWN:
+            {
+                EndWheelGlide();
+                PressRight(new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)));
+                return 0;
+            }
+            case WM_RBUTTONUP:
+                ReleaseRight(new Vec((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF)));
                 return 0;
             case WM_CAPTURECHANGED:
                 EndDrag(click: false);

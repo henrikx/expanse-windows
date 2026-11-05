@@ -15,7 +15,7 @@ sealed partial class Canvas
     bool othersCollapsed;
     readonly AppIcons appIcons = new();
 
-    RectD TreePanel => settings.GroupsPanel ? GroupTree.Panel(ViewSize, UiScale) : default;
+    RectD TreePanel => settings.GroupsPanel ? GroupTree.Panel(ViewSize, UiScale, TreeRows().Count) : default;
 
     bool TreeHasSearch => treeQuery.Trim().Length > 0;
 

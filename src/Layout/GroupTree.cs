@@ -12,6 +12,8 @@ public static class GroupTree
     public const double Width = 280, Margin = 16, RowHeight = 28, Indent = 16, IconSize = 16;
     /// The minimap's height and the gap above it, which the panel stops short of.
     public const double BottomReserve = 148;
+    /// The panel above its list (the search bar) and below it.
+    const double ListTop = 48, ListBottom = 8;
     public const string OthersName = "Other apps";
 
     public static string AppText(string name, string title) =>
@@ -57,11 +59,14 @@ public static class GroupTree
         return rows.Count > 0 ? 0 : -1;
     }
 
-    /// From the top of the view down to just above the minimap, on the right.
-    public static RectD Panel(Vec view, double k)
+    /// On the right, from the top of the view and only as long as its rows (one if there are none,
+    /// for the message that says so). A long list stops just above the minimap and scrolls.
+    public static RectD Panel(Vec view, double k, int rows)
     {
         double w = Width * k, y = Margin * k;
-        return new RectD(view.X - Margin * k - w, y, w, view.Y - (Margin + BottomReserve) * k - y);
+        double most = view.Y - (Margin + BottomReserve) * k - y;
+        double fits = (ListTop + ListBottom + Math.Max(rows, 1) * RowHeight) * k;
+        return new RectD(view.X - Margin * k - w, y, w, Math.Min(fits, most));
     }
 
     public static RectD SearchRect(RectD panel, double k) =>
@@ -72,7 +77,7 @@ public static class GroupTree
         new(search.X + 28 * k, search.Y + 3 * k, search.W - 34 * k, search.H - 6 * k);
 
     public static RectD ListRect(RectD panel, double k) =>
-        new(panel.X + 6 * k, panel.Y + 48 * k, panel.W - 12 * k, panel.H - 56 * k);
+        new(panel.X + 6 * k, panel.Y + ListTop * k, panel.W - 12 * k, panel.H - (ListTop + ListBottom) * k);
 
     /// The row at `p`, or -1.
     public static int RowAt(Vec p, RectD list, double rowHeight, double scroll, int count)

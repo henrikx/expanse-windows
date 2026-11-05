@@ -24,6 +24,8 @@ sealed partial class Canvas
     readonly PerDesktop<CanvasGroup> groupsAway = new();
     long nextGroupId = 1;
     CanvasGroup? hoveredGroup;
+    /// Where a right press landed, until the button comes up.
+    CanvasWindow? rightPressed;
     readonly RenameBox renameBox = new();
     /// The last press on a label, to tell a double click (the overlay's class doesn't ask for them).
     (long id, long at, Vec p) lastLabelPress;
@@ -145,6 +147,15 @@ sealed partial class Canvas
         return null;
     }
 
+    /// Zoomed out this far (as the minimap rounds it) a group's apps are too small to aim at: a
+    /// click on one goes to its group. Dragging one, Shift and its × still work.
+    const int GroupClickZoom = 35;
+
+    /// The group a click on this window goes to instead of the window, if any.
+    CanvasGroup? GroupTakingClick(CanvasWindow w) => Math.Round(camera.Scale * 100) > GroupClickZoom ? null : GroupHolding(w);
+
+    CanvasGroup? GroupHolding(CanvasWindow w) => groups.FirstOrDefault(g => Groups.IsMember(g.Box, GroupFrame(w)));
+
     /// The New Group button: beside a selection, none of it in a group yet.
     RectD? NewGroupRect(double k)
     {
@@ -201,13 +212,38 @@ sealed partial class Canvas
 
     void HoverGroup(Vec p, CanvasWindow? overWindow)
     {
-        var over = overWindow == null && !minimap.Panel.Contains(p) && !desktopsPanel.Panel.Contains(p) && GroupHitAt(p) is var (g, _, _) ? g : null;
+        var over = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) ? null
+            : overWindow != null ? GroupTakingClick(overWindow)
+            : GroupHitAt(p) is var (g, _, _) ? g : null;
         if (over == hoveredGroup) return;
         hoveredGroup = over;
         Redraw();
     }
 
     // MARK: The mouse
+
+    bool CanPressRight => active && !gliding && animation == null && drag == null;
+
+    /// The window a right press landed on, if nothing sits over it there.
+    void PressRight(Vec p)
+    {
+        bool covered = NewGroupRect(UiScale)?.Contains(p) == true || TreePanel.Contains(p)
+            || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p);
+        rightPressed = CanPressRight && !covered ? WindowAt(p) : null;
+    }
+
+    /// A right click on an app in a group goes to the group, at any zoom. Elsewhere it does nothing.
+    void ReleaseRight(Vec p)
+    {
+        var w = rightPressed;
+        rightPressed = null;
+        if (w == null || !CanPressRight || WindowAt(p) != w || GroupHolding(w) is not CanvasGroup g) return;
+        Log.Info($"right click on {w}");
+        renameBox.Finish(save: true, byKey: false);
+        searchBox.Close();
+        selected.Clear();
+        FocusGroup(g);
+    }
 
     /// The New Group button, which sits over everything. True if the press was on it.
     bool PressNewGroup(Vec p)
