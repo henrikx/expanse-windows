@@ -33,7 +33,9 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   backdrop underneath, and there are no close buttons (<kbd>Ctrl</kbd> + <kbd>W</kbd> still works).
 - **Off-screen windows come on-screen underneath the overlay** while it's up. GDI-drawn apps
   (classic Win32, Explorer's file list) only paint the parts of a window that are on a screen, so
-  windows out of view would otherwise show stale or empty pictures.
+  windows out of view would otherwise show stale or empty pictures. A glide from 100% brings up only
+  the windows it passes over: it hands back too soon for a slow app to take the rest away again, and
+  they'd flash as the overlay drops.
 - **Clicking one** animates the camera to it (0.18 s), then moves every real window once
   (`SetWindowPos`, asynchronous so a hung app can't stall it), waits for the ones in view to land,
   focuses the window and drops the overlay. Animation runs a frame at a time on the UI thread,

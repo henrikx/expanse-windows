@@ -1994,7 +1994,7 @@ sealed partial class Canvas
         pictures.Flush();
         overlay.Show(monitor, activate: zoomOut);
         SetTimer(overlay.Hwnd, DialogTimer, 500, 0);
-        Lift();
+        if (zoomOut) Lift(); // a glide lifts what it passes over, once it knows where it's going (Animate)
         if (zoomOut)
         {
             lastOverlayFocus = Focus(overlay.Hwnd);
@@ -2045,12 +2045,16 @@ sealed partial class Canvas
     /// that are on a screen, so a window parked off-screen keeps a stale picture, or none if it
     /// was never on screen. While the overlay covers the screen, every window comes onto it,
     /// underneath, and paints; the hand-back puts each where the camera says.
-    void Lift()
+    /// `only`: just the windows touching this part of the canvas. A glide hands back too soon for a
+    /// slow app (Firefox, with many windows) to take them all off the screen again, and those it
+    /// shows nothing of would then flash as the overlay drops.
+    void Lift(RectD? only = null)
     {
         int lifted = 0;
         bool newOriginals = false;
         foreach (var w in Stack())
         {
+            if (only is RectD seen && !w.Frame.Intersects(seen)) continue;
             GetWindowRect(w.Hwnd, out var r);
             int fx = r.Left + w.Insets.Left, fy = r.Top + w.Insets.Top;
             int fw = r.Width - w.Insets.Left - w.Insets.Right, fh = r.Height - w.Insets.Top - w.Insets.Bottom;
@@ -2523,6 +2527,8 @@ sealed partial class Canvas
 
     void Animate(Camera to, double duration, Action? completion = null, List<(CanvasWindow, RectD, RectD)>? moves = null)
     {
+        // The camera goes in a straight line, so this holds all a glide or dive will show.
+        if (gliding) Lift(camera.ToCanvas(View).Union(to.ToCanvas(View)));
         animation = new Animation
         {
             From = camera, To = to, Start = Stopwatch.GetTimestamp(), Duration = duration, Completion = completion, Moves = moves,
