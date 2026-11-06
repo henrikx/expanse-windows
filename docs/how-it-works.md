@@ -93,7 +93,7 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   which never takes focus: only while you're in the stack or another window of its canvas group, because
   Windows can't keep one app's window above another's as the order changes. It's put directly above the stack's
   front window whenever focus changes, and waits while you drag a window. With no room below the stack it goes
-  over the bottom edge.
+  over the bottom edge. A click on a tab gives that window focus, which moves the view as any change of focus does.
 - **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes, and is
   only as long as its rows. Its
   rules are in `src/Layout/GroupTree.cs`. The search box is a popup, up only while you type.

@@ -76,15 +76,14 @@ sealed partial class Canvas
         stackBars.Show(wanted, k);
     }
 
-    /// A click on a tab at 100%: you're going to that window, so it takes focus.
+    /// A click on a tab at 100%: you're going to that window, so it takes focus. Like any window you
+    /// switch to, the view then moves to it if enough of it is hidden (FocusSettled).
     void TabClickedAt100(nint hwnd)
     {
         if (paused || active || windows.FirstOrDefault(x => x.Hwnd == hwnd) is not CanvasWindow w || !IsWindow(hwnd)) return;
         nint popup = GetLastActivePopup(hwnd);
         nint to = popup != 0 && IsWindowVisible(popup) && IsWindowEnabled(popup) ? popup : hwnd;
         Log.Info($"tab at 100%: {w}, focus {Focus(to)}");
-        lastOwnFocus = (hwnd, System.Diagnostics.Stopwatch.GetTimestamp());
-        lastFocusedWindow = hwnd;
         BringToFront(w);
         UpdateStackBars();
     }
