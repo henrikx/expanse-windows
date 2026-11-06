@@ -155,7 +155,7 @@ press <kbd>Ctrl</kbd> + <kbd>F</kbd> first.
 
 **The tray icon** has the rest. Click it to zoom out; right-click for Pause, Tidy Up, Centre
 Current Window, how much of a window must be off screen for focus to bring it into view (Auto-Centre
-When Hidden), whether that nudges the view or centres the window, Restore Layout, Restore All Windows, which corners to use, window names, the
+When Hidden), whether that nudges the view or centres the window, whether new windows are arranged or open where Windows puts them, Restore Layout, Restore All Windows, which corners to use, window names, the
 desktop picture, Include Admin Windows, Welcome & Shortcuts, updates, Open at Login, and
 Troubleshooting (logs for a bug report).
 

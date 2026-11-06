@@ -862,7 +862,7 @@ sealed partial class Canvas
     /// A window that wasn't on the canvas appeared. Back from minimise (or hidden, or another
     /// virtual desktop): to its old spot. New (just shown): into free space beside the window
     /// you were in (Layout.FreeSpot), and the view glides there if that's off screen, as on
-    /// the Mac.
+    /// the Mac. With Arrange New Windows off, a new one stays where its app and Windows opened it.
     void Arrive(CanvasWindow w)
     {
         if (departed.Remove(w.Hwnd, out var away))
@@ -873,6 +873,11 @@ sealed partial class Canvas
             return;
         }
         if (!initialSyncDone) return;
+        if (!settings.ArrangeNewWindows)
+        {
+            if (shownRecently.Contains(w.Hwnd)) Log.Info($"new window {w} stays where it opened, {w.Frame}");
+            return;
+        }
         // Saved spots are for windows coming back: at launch (see Start), or an app's that has just
         // started (opening again after quitting).
         bool mayTakeSavedSpot = JustStarted(w.Pid);
@@ -1948,6 +1953,7 @@ sealed partial class Canvas
         new("Centre Current Window\tCtrl+Alt+C", CentreCurrentWindow, Enabled: !paused),
         new("Auto-Centre Focused Window\tCtrl+Alt+Shift+`", ToggleAutoCentre, settings.AutoCentre),
         new("Nudge Focused Window Into View", ToggleNudgeIntoView, settings.NudgeIntoView),
+        new("Arrange New Windows", ToggleArrangeNewWindows, settings.ArrangeNewWindows),
         new($"Auto-Centre When Hidden ({Math.Clamp(settings.AutoCentreHidden, 1, 100)}%)…", ChooseAutoCentreHidden, Enabled: settings.AutoCentre),
         new("Desktop Picture Background", () =>
         {
@@ -3403,6 +3409,13 @@ sealed partial class Canvas
         settings.NudgeIntoView = !settings.NudgeIntoView;
         settings.Save();
         Log.Info($"nudge into view {(settings.NudgeIntoView ? "on" : "off")}");
+    }
+
+    void ToggleArrangeNewWindows()
+    {
+        settings.ArrangeNewWindows = !settings.ArrangeNewWindows;
+        settings.Save();
+        Log.Info($"arrange new windows {(settings.ArrangeNewWindows ? "on" : "off")}");
     }
 
     void ToggleAutoCentre()

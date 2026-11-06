@@ -130,7 +130,9 @@ taken on a screen of this size; on another, it fits the snapshot's home spots to
 Windows are matched to saved spots by the same window while its app keeps running, then by app and
 title (titles are stored only as hashes), then by app; a window under a quarter of a saved one's
 size (a loading box) doesn't take its spot. Saved spots are used at launch, or for an app that has
-just started; a window a long-running app opens later is placed in free space beside you.
+just started; a window a long-running app opens later is placed in free space beside you. With
+Arrange New Windows off, neither happens to a window that opens: it stays where its app and Windows
+put it. Windows at launch and ones coming back from being minimised keep their spots either way.
 
 ## Updates
 
