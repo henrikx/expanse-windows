@@ -191,16 +191,14 @@ sealed partial class Canvas
 
     CanvasGroup? GroupHolding(CanvasWindow w) => groups.FirstOrDefault(g => Groups.IsMember(g.Box, GroupFrame(w)));
 
-    /// The New Group button: beside a selection, none of it in a group yet.
+    /// The New Group button: where the new group's label will be, for a selection none of it in a
+    /// group yet.
     RectD? NewGroupRect(double k)
     {
         if (selected.Count == 0 || drag != null || selected.Any(InAnyGroup)) return null;
-        var picked = windows.Where(selected.Contains).Select(w => camera.ToView(w.Frame)).ToList();
+        var picked = windows.Where(selected.Contains).Select(GroupFrame).ToList();
         if (picked.Count == 0) return null;
-        // Clear of the box drawn round a selection (see SetMarks).
-        var bounds = picked.Aggregate((a, b) => a.Union(b)).Inset(-8 * k, -8 * k);
-        var size = new SizeD(TextWidth(NewGroupText, k) + 2 * Groups.LabelPad * k, Math.Round(Groups.LabelHeight * k));
-        return Groups.ButtonRect(bounds, size, View, k);
+        return Groups.ButtonRect(camera.ToView(Groups.Fit(picked)), TextWidth(NewGroupText, k), View, k);
     }
 
     readonly Dictionary<(string, double), double> textWidths = new();

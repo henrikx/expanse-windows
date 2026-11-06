@@ -273,13 +273,12 @@ public static class Groups
         return (label, new RectD(label.Right + Math.Round(4 * k), y, h, h));
     }
 
-    /// The New Group button: right of the selection, level with its top, or left of it if there's
-    /// no room; always on screen.
-    public static RectD ButtonRect(RectD selection, SizeD size, RectD view, double k)
+    /// The New Group button: where the label of the group it would make goes (`viewBox` is that
+    /// group's box, in view space), but always on screen, to be clicked.
+    public static RectD ButtonRect(RectD viewBox, double textWidth, RectD view, double k)
     {
-        double gap = 8 * k;
-        double x = selection.Right + gap + size.W <= view.Right ? selection.Right + gap : selection.X - gap - size.W;
-        return new RectD(Math.Clamp(x, view.X, view.Right - size.W), Math.Clamp(selection.Y, view.Y, view.Bottom - size.H), size.W, size.H);
+        var (label, _) = LabelRects(viewBox, textWidth, k);
+        return label with { X = Math.Clamp(label.X, view.X, view.Right - label.W), Y = Math.Clamp(label.Y, view.Y, view.Bottom - label.H) };
     }
 
     /// How near another group a box may not come.

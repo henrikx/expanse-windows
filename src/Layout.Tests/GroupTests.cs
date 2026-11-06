@@ -185,9 +185,10 @@ static class GroupTests
         var (longLabel, _) = Groups.LabelRects(new(0, 200, 500, 300), 5000, 1);
         Is("label: a long name is capped", longLabel.W <= Groups.LabelMaxWidth);
         var view = new RectD(0, 0, 1000, 800);
-        var size = new SizeD(100, 30);
-        Same("button: right of the selection, at its top", new(508, 100, 100, 30), Groups.ButtonRect(new(100, 100, 400, 200), size, view, 1));
-        Same("button: to the left when there's no room on the right", new(392, 100, 100, 30), Groups.ButtonRect(new(500, 100, 450, 200), size, view, 1));
-        Is("button: always on screen", view.Contains(Groups.ButtonRect(new(-500, -500, 1800, 1600), size, view, 1)));
+        Same("button: where the group's label will be", label, Groups.ButtonRect(new(100, 200, 500, 300), 80, view, 1));
+        Same("button: and at the display's scale", bigLabel, Groups.ButtonRect(new(100, 200, 500, 300), 80, view, 2));
+        Is("button: on screen with the box's top out of view", view.Contains(Groups.ButtonRect(new(100, -500, 500, 900), 80, view, 1)));
+        Is("button: on screen with the box's left out of view", view.Contains(Groups.ButtonRect(new(-500, 200, 900, 300), 80, view, 1)));
+        Is("button: on screen with the box past the far corner", view.Contains(Groups.ButtonRect(new(5000, 5000, 500, 300), 80, view, 1)));
     }
 }
