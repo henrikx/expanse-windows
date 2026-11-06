@@ -62,6 +62,10 @@ interface IPictures : IDisposable
     /// them only if it DrawsDecorations (the overlay does otherwise).
     void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity);
 
+    /// How wide this kind draws `text` in a label, without the label's padding. Null if it isn't the
+    /// one drawing labels (the caller measures for the backdrop).
+    double? MeasureText(string text, double scale);
+
     /// The colour wheel over everything, or none. Only for a kind that DrawsDecorations.
     void SetColourWheel(ColourWheelDrawing? wheel, double scale);
 
@@ -204,6 +208,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public void SetMarks(Marks marks, double scale) { }
     public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity) { }
     public void SetColourWheel(ColourWheelDrawing? wheel, double scale) { }
+    public double? MeasureText(string text, double scale) => null;
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
     public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;

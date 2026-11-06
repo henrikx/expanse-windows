@@ -645,6 +645,24 @@ sealed class SharedVisualPictures : IPictures
         return true;
     }
 
+    IDWriteTextFormat TitleFont(double scale)
+    {
+        if (fonts.TryGetValue(scale, out var font)) return font;
+        font = dwrite.CreateTextFormat("Segoe UI", FontWeight.SemiBold, Vortice.DirectWrite.FontStyle.Normal, (float)(13 * scale));
+        font.WordWrapping = WordWrapping.NoWrap;
+        using var ellipsis = dwrite.CreateEllipsisTrimmingSign(font);
+        font.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, ellipsis);
+        return fonts[scale] = font;
+    }
+
+    /// With the font and rounding Draw uses, so that a label's rectangle (the text and Groups.LabelPad
+    /// on each side) comes out as wide as its pill and what sits beside it stays close.
+    public double? MeasureText(string text, double scale)
+    {
+        using var layout = dwrite.CreateTextLayout(text, TitleFont(scale), (float)(4000 * scale), (float)Math.Round(22 * scale));
+        return Math.Ceiling(layout.Metrics.Width + 2 * Math.Round(10 * scale)) - 2 * Groups.LabelPad * scale;
+    }
+
     /// The circle by a group's label, filled with its colour, with the delete button's dark for a
     /// rim so that it shows on any wallpaper.
     void DrawSwatch(Swatch swatch, GroupColour colour, double height, double scale)
@@ -1059,14 +1077,7 @@ sealed class SharedVisualPictures : IPictures
     /// `fitGlyph`: the stack's fit button: its mark instead of any text.
     void Draw(Title t, string text, double scale, bool front = false, float fit = 0, IconImage? icon = null, bool fitGlyph = false)
     {
-        if (!fonts.TryGetValue(scale, out var font))
-        {
-            font = dwrite.CreateTextFormat("Segoe UI", FontWeight.SemiBold, Vortice.DirectWrite.FontStyle.Normal, (float)(13 * scale));
-            font.WordWrapping = WordWrapping.NoWrap;
-            using var ellipsis = dwrite.CreateEllipsisTrimmingSign(font);
-            font.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, ellipsis);
-            fonts[scale] = font;
-        }
+        var font = TitleFont(scale);
         float pad = (float)Math.Round(10 * scale), h = (float)Math.Round(22 * scale);
         if (fit > 0) pad = Math.Min(pad, fit / 4); // a narrow one still has room for the ellipsis
         float iconRoom = icon != null ? icon.Size + (float)Math.Round(Stacks.TabIconGap * scale) : 0;

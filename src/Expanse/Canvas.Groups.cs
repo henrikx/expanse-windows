@@ -206,10 +206,13 @@ sealed partial class Canvas
 
     readonly Dictionary<(string, double), double> textWidths = new();
 
-    /// The width of a label's text, for working out where its button goes.
+    /// The width of a label's text, for working out where its button goes. Measured by whichever
+    /// draws it: GDI and DirectWrite differ a little per letter, which adds up over a long name.
     double TextWidth(string text, double k)
     {
         if (textWidths.TryGetValue((text, k), out double known)) return known;
+        if (textWidths.Count > 200) textWidths.Clear();
+        if (pictures.MeasureText(text, k) is double drawn) return textWidths[(text, k)] = drawn;
         nint dc = GetDC(overlay.Hwnd);
         nint font = Gdi32.CreateFont(-(int)(13 * k), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         nint old = Gdi32.SelectObject(dc, font);
@@ -218,7 +221,6 @@ sealed partial class Canvas
         Gdi32.SelectObject(dc, old);
         Gdi32.DeleteObject(font);
         ReleaseDC(overlay.Hwnd, dc);
-        if (textWidths.Count > 200) textWidths.Clear();
         return textWidths[(text, k)] = measure.Width;
     }
 

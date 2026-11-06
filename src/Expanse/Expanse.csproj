@@ -4,7 +4,7 @@
     <AssemblyName>Expanse</AssemblyName>
     <RootNamespace>Expanse</RootNamespace>
     <ApplicationIcon>Expanse.ico</ApplicationIcon>
-    <Version>0.2.16</Version>
+    <Version>0.2.17</Version>
   </PropertyGroup>
   <!-- A release runs on a PC without .NET, from the one file. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
