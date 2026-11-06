@@ -430,10 +430,12 @@ sealed partial class Canvas
             BringToFront(focus);
             FitToScreen(focus);
         }
-        var bounds = members.Count == 0 ? g.Box : members.Select(GroupFrame).Aggregate((a, b) => a.Union(b));
+        var open = windows.Where(w => !w.Maximised).ToList();
         var area = new RectD(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
         var target = focus?.Maximised == true ? FocusCamera(focus)
-            : new Camera(Groups.FocusOrigin(bounds, focus?.Frame, area), 1);
+            : new Camera(Stacks.GroupOrigin(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList(),
+                members.Select(m => open.IndexOf(m)).Where(i => i >= 0).ToList(), focus == null ? -1 : open.IndexOf(focus),
+                members.Where(m => m.Maximised).Select(GroupFrame).ToList(), g.Box, area, UiScale), 1);
         gliding = true;
         hovered = null;
         hoveredGroup = null;

@@ -50,6 +50,66 @@ public static class Stacks
         return stacks;
     }
 
+    /// What the tabs take below a stack, with the same space again below them.
+    public static double TabRoom(double k) => Math.Round(TabDrop * k) * 2 + Math.Round(Groups.LabelHeight * k);
+
+    /// The frames for working out where to go to them: one in a stack reaches down past the stack's
+    /// tabs, so they don't end up pushed over it at the bottom of the screen.
+    public static RectD[] WithTabRoom(IReadOnlyList<RectD> frames, IReadOnlyList<long> ids, double k)
+    {
+        var roomy = frames.ToArray();
+        foreach (var stack in Find(frames, ids))
+        {
+            double bottom = stack.Members.Max(i => frames[i].Bottom) + TabRoom(k);
+            foreach (int i in stack.Members) roomy[i] = frames[i] with { H = bottom - frames[i].Y };
+        }
+        return roomy;
+    }
+
+    /// All of a stack with the room its tabs take below it.
+    public static RectD BoxWithTabs(IReadOnlyList<RectD> frames, WindowStack stack, double k)
+    {
+        var box = stack.Members.Select(i => frames[i]).Aggregate((a, b) => a.Union(b));
+        return box with { H = box.H + TabRoom(k) };
+    }
+
+    /// How much of a stack (with its tabs' room) must show for the view to move to fit its tabs. A
+    /// stack barely on screen isn't what you came to see, and mustn't push the view away from what is.
+    public const double MostlyShown = 0.75;
+
+    /// The view's top-left (from Groups.FocusOrigin) moved on so that stacks mostly on screen have their
+    /// tabs on it too, rather than pushed up over them. `stacks`: from BoxWithTabs. As far as that goes
+    /// without taking the top of `focus` or of the stack off the screen. `work`: in view space.
+    public static Vec RoomForTabs(Vec origin, IEnumerable<RectD> stacks, RectD? focus, RectD work)
+    {
+        double y = origin.Y;
+        foreach (var s in stacks.OrderByDescending(s => s.Bottom))
+        {
+            var seen = s.Offset(new Vec(-origin.X, -y));
+            if (!seen.Intersects(work)) continue;
+            double shown = Math.Min(seen.Bottom, work.Bottom) - Math.Max(seen.Y, work.Y);
+            if (shown < MostlyShown * s.H) continue;
+            double over = seen.Bottom - work.Bottom, limit = seen.Y - work.Y;
+            if (focus is RectD f) limit = Math.Min(limit, f.Y - y - work.Y);
+            if (over > 0 && limit > 0) y += Math.Min(over, limit);
+        }
+        return new Vec(origin.X, Math.Round(y));
+    }
+
+    /// The view's top-left at 100% for going to a canvas group, the whole of that decision. `members`:
+    /// indexes into `frames`, the windows that aren't maximised. `focus`: one of them, or -1.
+    /// `maximised`: the group's maximised windows' frames, which count towards its size. `box`: the group's, if it's empty.
+    public static Vec GroupOrigin(IReadOnlyList<RectD> frames, IReadOnlyList<long> ids, IReadOnlyCollection<int> members, int focus,
+        IReadOnlyCollection<RectD> maximised, RectD box, RectD work, double k)
+    {
+        var roomy = WithTabRoom(frames, ids, k);
+        var sized = members.Select(i => roomy[i]).Concat(maximised).ToList();
+        var bounds = sized.Count == 0 ? box : sized.Aggregate((a, b) => a.Union(b));
+        RectD? seen = focus >= 0 ? roomy[focus] : null;
+        var stacks = Find(frames, ids).Where(s => s.Members.Any(members.Contains)).Select(s => BoxWithTabs(frames, s, k));
+        return RoomForTabs(Groups.FocusOrigin(bounds, seen, work), stacks, seen, work);
+    }
+
     /// The stacks whose tabs show at 100%: the one you're in (`focused`, an index, or -1), and any in
     /// the same canvas group as it. `groupOf`: each window's group (-1: none). `focusedGroup`: the
     /// focused window's, which may not be among the frames (a maximised one).
@@ -64,28 +124,34 @@ public static class Stacks
     }
 
     /// The tabs of a stack, in view space, in a row just below `viewBounds`, all of its windows: the
-    /// same size at any zoom, narrower where they wouldn't fit its width, and always on screen.
+    /// same size at any zoom, narrower where they wouldn't fit the part of it on `view`. They stay on
+    /// the view, but don't overhang the stack for that: one mostly off a side (on another monitor,
+    /// say) keeps its row by the edge of the part showing, even if that takes some of the row off.
     /// On whole pixels, or their text would blur. `lead`: room to leave before the first tab.
     public static RectD[] TabRects(RectD viewBounds, IReadOnlyList<double> textWidths, RectD view, double k, double lead = 0)
     {
         int n = textWidths.Count;
         if (n == 0) return [];
         double h = Math.Round(Groups.LabelHeight * k), gap = Math.Round(TabGap * k), gaps = gap * (n - 1);
+        double left = Math.Max(viewBounds.X, view.X), right = Math.Min(viewBounds.Right, view.Right);
         var widths = textWidths.Select(t => Math.Min(t + 2 * Groups.LabelPad * k, TabMaxWidth * k)).ToArray();
-        if (lead + widths.Sum() + gaps > viewBounds.W)
+        if (lead + widths.Sum() + gaps > right - left)
         {
-            double even = (viewBounds.W - lead - gaps) / n;
+            double even = (right - left - lead - gaps) / n;
             widths = widths.Select(w => Math.Max(Math.Min(w, even), TabMinWidth * k)).ToArray();
         }
+        widths = widths.Select(Math.Floor).ToArray();
         double total = lead + widths.Sum() + gaps;
-        double x = Math.Round(Math.Clamp(viewBounds.X, view.X, Math.Max(view.X, view.Right - total))) + lead;
+        double start = viewBounds.X < view.X ? Math.Min(left, right - total)
+            : viewBounds.Right > view.Right ? left
+            : Math.Min(left, Math.Max(view.X, view.Right - total));
+        double x = Math.Round(start) + lead;
         double y = Math.Round(Math.Clamp(viewBounds.Bottom + TabDrop * k, view.Y, Math.Max(view.Y, view.Bottom - h)));
         var tabs = new RectD[n];
         for (int i = 0; i < n; i++)
         {
-            double w = Math.Floor(widths[i]);
-            tabs[i] = new RectD(x, y, w, h);
-            x += w + gap;
+            tabs[i] = new RectD(x, y, widths[i], h);
+            x += widths[i] + gap;
         }
         return tabs;
     }
