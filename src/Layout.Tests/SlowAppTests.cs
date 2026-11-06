@@ -139,6 +139,26 @@ static class SlowAppTests
         var opened = Glide([new Window(arriving)], from, to, view, moveMs: 30, liftAll: false);
         Is("the window glided to lands", opened.Late == 0 && opened.Flashed == 0, $"{opened}");
 
+        // --- Zooming out lifts what's near the view, not everything ---
+        var at100 = new Camera(new Vec(-1000, -500), 1);
+        var ahead100 = Layout.LiftArea(at100, view);
+        Is("what's in view is lifted", ahead100.Contains(at100.ToCanvas(view)));
+        var nextTurn = at100;
+        nextTurn.Zoom(1 / 1.2, new Vec(view.W / 2, view.H / 2));
+        Is("so is what the next turn out shows", ahead100.Contains(nextTurn.ToCanvas(view)), $"{ahead100} {nextTurn.ToCanvas(view)}");
+        foreach (var corner in new[] { new Vec(0, 0), new Vec(view.W, 0), new Vec(0, view.H), new Vec(view.W, view.H) })
+        {
+            var pulled = at100;
+            pulled.ZoomOutOnto(1 / 1.2, at100.ToCanvas(corner), 0.35, new Vec(view.W / 2, view.H / 2));
+            Is($"and a turn out from the pointer at {corner}", ahead100.Contains(pulled.ToCanvas(view)), $"{ahead100} {pulled.ToCanvas(view)}");
+        }
+        var nearby = at100.ToCanvas(view);
+        Is("a window just outside the view is lifted", Layout.LiftedByGlide(new RectD(nearby.Right + 100, nearby.Y, 500, 500), ahead100));
+        Is("one far away isn't, at a small zoom", !Layout.LiftedByGlide(new RectD(nearby.Right + 5000, nearby.Y, 500, 500), ahead100));
+        var farOut = at100;
+        farOut.Zoom(0.1, new Vec(view.W / 2, view.H / 2));
+        Is("but is when you've zoomed out that far", Layout.LiftedByGlide(new RectD(nearby.Right + 5000, nearby.Y, 500, 500), Layout.LiftArea(farOut, view)));
+
         // --- The rules themselves ---
         Is("at its spot: landed", MoveWait.Landed(atPlaced: true, inView: true, onMainScreen: true));
         Is("on its way to a spot in view: not landed", !MoveWait.Landed(atPlaced: false, inView: true, onMainScreen: true));

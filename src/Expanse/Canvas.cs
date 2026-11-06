@@ -34,6 +34,8 @@ sealed partial class Canvas
     RECT monitor, work;
     bool active;   // the overlay is up: zoomed out, or mid-glide
     bool gliding;  // up only to glide/dive into a window; input waits until it's handed back
+    bool liftAhead; // zoomed out, with the overlay covering the screen: windows lift as the view nears them
+    readonly HashSet<nint> liftChecked = new(); // the windows Lift has seen since the overlay rose
     bool shortcutKey; // the last key pressed was a shortcut, so the character it makes isn't typed
     bool paused;   // windows put back; the canvas ignores events and the hotkey until resumed
     bool pendingSync; // windows came or went mid-glide: sync once it's handed back
@@ -2034,6 +2036,8 @@ sealed partial class Canvas
         stackBars?.Hide();
         active = true;
         gliding = !zoomOut;
+        liftAhead = false;
+        liftChecked.Clear();
         hovered = null;
         camera.Scale = 1;
         liveOrigin = camera.Origin;
@@ -2055,7 +2059,12 @@ sealed partial class Canvas
         pictures.Flush();
         overlay.Show(monitor, activate: zoomOut);
         SetTimer(overlay.Hwnd, DialogTimer, 500, 0);
-        if (zoomOut) Lift(); // a glide lifts what it passes over, once it knows where it's going (Animate)
+        // Now it covers them. A glide lifts what it passes over, once it knows where it's going (Animate).
+        if (zoomOut)
+        {
+            liftAhead = true;
+            Lift(Layout.LiftArea(camera, View));
+        }
         if (zoomOut)
         {
             lastOverlayFocus = Focus(overlay.Hwnd);
@@ -2106,16 +2115,17 @@ sealed partial class Canvas
     /// that are on a screen, so a window parked off-screen keeps a stale picture, or none if it
     /// was never on screen. While the overlay covers the screen, every window comes onto it,
     /// underneath, and paints; the hand-back puts each where the camera says.
-    /// `only`: just the windows touching this part of the canvas. A glide hands back too soon for a
-    /// slow app (Firefox, with many windows) to take them all off the screen again, and those it
-    /// shows nothing of would then flash as the overlay drops.
-    void Lift(RectD? only = null)
+    /// Only the windows touching `area` of the canvas, each once while the overlay is up: every one
+    /// has to leave the screen again at the end, and a slow app (Firefox, with many windows) may not
+    /// manage that in time, so it would flash as the overlay drops. Zooming out, more come as the
+    /// view reaches them, a little ahead so they've time to repaint (Layout.LiftArea).
+    void Lift(RectD area)
     {
         int lifted = 0;
         bool newOriginals = false;
         foreach (var w in Stack())
         {
-            if (only is RectD seen && !Layout.LiftedByGlide(w.Frame, seen)) continue;
+            if (!Layout.LiftedByGlide(w.Frame, area) || !liftChecked.Add(w.Hwnd)) continue;
             GetWindowRect(w.Hwnd, out var r);
             int fx = r.Left + w.Insets.Left, fy = r.Top + w.Insets.Top;
             int fw = r.Width - w.Insets.Left - w.Insets.Right, fh = r.Height - w.Insets.Top - w.Insets.Bottom;
@@ -2579,6 +2589,7 @@ sealed partial class Canvas
     {
         // The camera goes in a straight line, so this holds all a glide or dive will show.
         if (gliding) Lift(Layout.GlideArea(camera, to, View));
+        else if (liftAhead) Lift(Layout.LiftArea(to, View));
         animation = new Animation
         {
             From = camera, To = to, Start = Stopwatch.GetTimestamp(), Duration = duration, Completion = completion, Moves = moves,
@@ -2985,6 +2996,7 @@ sealed partial class Canvas
     /// screen at once.
     void Relayout()
     {
+        if (liftAhead && active && !gliding) Lift(Layout.LiftArea(camera, View));
         pictures.Layout(Stack(), camera, View);
         Redraw();
     }

@@ -19,6 +19,19 @@ public static class Layout
     /// would be brought on screen and flash as the overlay drops.
     public static bool LiftedByGlide(RectD frame, RectD area) => frame.Intersects(area);
 
+    /// How much wider, in wheel turns' growth, zooming out lifts than the view, so windows have
+    /// repainted by the time they come into view. Three, to cover one real turn: it also pulls the
+    /// view towards the pointer, which from a corner reaches 0.275 of the view's width past its edge.
+    public const int LiftAheadTurns = 3;
+
+    /// What the canvas may show next from this camera: the view, and what the next turns out would add.
+    public static RectD LiftArea(Camera camera, RectD view)
+    {
+        var seen = camera.ToCanvas(view);
+        double grow = (Math.Pow(1.2, LiftAheadTurns) - 1) / 2;
+        return seen.Inset(-seen.W * grow, -seen.H * grow);
+    }
+
     /// The gap between neighbouring windows: edge snapping, new-window placement and Tidy Up.
     public const double Gap = 20;
     /// Windows closer than this to a neighbour count as one group (cluster). Tidy Up tidies each
