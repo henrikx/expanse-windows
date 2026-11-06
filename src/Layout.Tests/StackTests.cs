@@ -6,9 +6,8 @@ static class StackTests
     public static void Run(Action<string, bool, string> expect)
     {
         void Is(string name, bool ok, string detail = "") => expect($"stacks: {name}", ok, detail);
-        const double T = Stacks.Tolerance;
         static string Show(List<WindowStack> s) => string.Join("; ", s.Select(x => $"outer {x.Outer}, members {string.Join(",", x.Members)}, front {x.Front}"));
-        List<WindowStack> Find(params RectD[] frames) => Stacks.Find(frames, Enumerable.Range(0, frames.Length).Select(i => (long)i).ToList(), T);
+        List<WindowStack> Find(params RectD[] frames) => Stacks.Find(frames, Enumerable.Range(0, frames.Length).Select(i => (long)i).ToList());
         void One(string name, RectD[] frames, int outer, int[] members, int front)
         {
             var s = Find(frames);
@@ -27,12 +26,18 @@ static class StackTests
         One("nested windows all join the outermost", [smaller, big, small], 1, [0, 1, 2], 2);
         One("each inside the big one, though not inside each other", [big, new(100, 100, 300, 300), new(500, 300, 300, 300)], 0, [0, 1, 2], 2);
 
-        // The tolerance
-        One("sticking out by the tolerance counts", [big, new(100 - T, 100, 300, 200)], 0, [0, 1], 1);
-        Is("sticking out by more doesn't", Find(big, new(100 - T - 1, 100, 300, 200)).Count == 0);
-        One("slightly offset, the same size", [big, big.Offset(new(T, T))], 1, [0, 1], 1);
-        Is("the tolerance is the caller's, for the display's scale",
-            Stacks.Find([big, new(100 - 2 * T, 100, 300, 200)], [0, 1], 2 * T).Count == 1);
+        // How much must be inside
+        One("sticking out, with enough inside, counts", [big, new(100 - 45, 100, 300, 200)], 0, [0, 1], 1);
+        Is("sticking out further doesn't", Find(big, new(100 - 46, 100, 300, 200)).Count == 0);
+        One("slightly offset, the same size", [big, big.Offset(new(16, 16))], 1, [0, 1], 1);
+        Is("exactly the share is inside", Stacks.IsInside(new(0, 0, 100, 100), new(15, 0, 500, 500)));
+        Is("just under it isn't", !Stacks.IsInside(new(0, 0, 100, 100), new(15.1, 0, 500, 500)));
+        Is("touching isn't inside", !Stacks.IsInside(new(0, 0, 100, 100), new(100, 0, 500, 500)));
+        // As a log showed: Firefox is taller than Chrome, so it could never lie wholly inside it.
+        RectD chrome = new(-3965, -8125, 2098, 1226), firefox = new(-3766, -8096, 1911, 1288), code = new(-3900, -8000, 1500, 900);
+        One("a window taller than the one it's on, mostly within it", [firefox, chrome], 1, [0, 1], 1);
+        One("and with one wholly inside as well", [code, firefox, chrome], 2, [0, 1, 2], 2);
+        Is("the larger stays the outer one when the other is in front", Find(chrome, firefox)[0].Outer == 0);
 
         // Separate stacks
         var two = Find(big, small, new(2000, 100, 800, 600), new(2100, 200, 100, 100));
@@ -41,8 +46,8 @@ static class StackTests
         // Raising one doesn't move the tabs
         RectD[] before = [small, big, smaller], after = [big, smaller, small];
         long[] idsBefore = [30, 10, 20], idsAfter = [10, 20, 30];
-        var was = Stacks.Find(before, idsBefore, T)[0];
-        var now = Stacks.Find(after, idsAfter, T)[0];
+        var was = Stacks.Find(before, idsBefore)[0];
+        var now = Stacks.Find(after, idsAfter)[0];
         Is("raising keeps the order of the tabs", was.Members.Select(i => idsBefore[i]).SequenceEqual(now.Members.Select(i => idsAfter[i])));
         Is("raising keeps the outer window", idsBefore[was.Outer] == 10 && idsAfter[now.Outer] == 10);
         Is("raising changes the one in front", idsBefore[was.Front] == 20 && idsAfter[now.Front] == 30);

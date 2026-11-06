@@ -2,7 +2,7 @@ using static Expanse.Native.User32;
 
 namespace Expanse;
 
-/// Windows stacked inside each other, zoomed out: a row of tabs below the outer one to switch
+/// Windows stacked inside each other, zoomed out: a row of tabs below them to switch
 /// between them (see Stacks). They stack with the window in front, so what's in front of that covers them.
 sealed partial class Canvas
 {
@@ -15,16 +15,16 @@ sealed partial class Canvas
         if (!active || gliding || drag != null) return tabs;
         // A maximised window is meant to cover what's behind it.
         var open = windows.Where(w => !w.Maximised).ToList();
-        var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList(), Stacks.Tolerance * k);
+        var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList());
         foreach (var stack in stacks)
         {
-            var outer = camera.ToView(open[stack.Outer].Frame);
-            if (!outer.Intersects(View)) continue;
             var members = stack.Members.Select(i => open[i]).ToList();
+            var bounds = camera.ToView(members.Select(w => w.Frame).Aggregate((a, b) => a.Union(b)));
+            if (!bounds.Intersects(View)) continue;
             var texts = members.Select(w => TabText(w, members)).ToList();
             var icons = members.Select(w => appIcons.Get(w, (int)Math.Round(GroupTree.IconSize * k))).ToList();
             // A little to spare: the tab's text is drawn by another API, which may measure it wider.
-            var rects = Stacks.TabRects(outer,
+            var rects = Stacks.TabRects(bounds,
                 texts.Select((t, i) => TextWidth(t, k) + Math.Ceiling(2 * k) + (icons[i] != null ? Stacks.TabIconRoom * k : 0)).ToList(), View, k);
             for (int i = 0; i < members.Count; i++)
                 tabs.Add(new StackTab(members[i], open[stack.Front], texts[i], rects[i], icons[i]));

@@ -1,8 +1,8 @@
 namespace Expanse;
 
-/// Windows lying inside another: `Outer` holds the tab bar, `Members` are its tabs (the outer one
-/// too) in an order that doesn't change as they're raised, and `Front` is the one on top. All are
-/// indexes into the frames.
+/// Windows lying inside another: `Outer` is the largest, `Members` are the tabs (the outer one too)
+/// in an order that doesn't change as they're raised, and `Front` is the one on top. All are indexes
+/// into the frames.
 public sealed record WindowStack(int Outer, int[] Members, int Front);
 
 /// The rules of stacks on the canvas. A stack is worked out from where windows are, like a group,
@@ -11,8 +11,9 @@ public sealed record WindowStack(int Outer, int[] Members, int Front);
 /// a big one.
 public static class Stacks
 {
-    /// How far a window may stick out of another and still count as inside it, at a display scale of 1.
-    public const double Tolerance = 16;
+    /// How much of a window's area must lie within another for it to count as inside. Not all of it:
+    /// a window a little taller than the one it's on could otherwise never join it.
+    public const double InsideShare = 0.85;
     /// A tab's widest and, however many there are, narrowest, and the room round them, at a display scale of 1.
     public const double TabMaxWidth = 200, TabMinWidth = 36, TabGap = 4, TabDrop = 8;
     /// What an icon adds to a tab's width: the icon and the space before its text.
@@ -21,7 +22,7 @@ public static class Stacks
     /// `frames` bottom first. `ids` stay the same for a window, and put the tabs in their order.
     /// The largest window takes everything inside it, so nested windows all join the outermost.
     /// Of equal sizes, the one in front is the outer one.
-    public static List<WindowStack> Find(IReadOnlyList<RectD> frames, IReadOnlyList<long> ids, double tolerance)
+    public static List<WindowStack> Find(IReadOnlyList<RectD> frames, IReadOnlyList<long> ids)
     {
         var stacks = new List<WindowStack>();
         var taken = new HashSet<int>();
@@ -29,8 +30,7 @@ public static class Stacks
         foreach (int outer in largestFirst)
         {
             if (taken.Contains(outer)) continue;
-            var room = frames[outer].Inset(-tolerance, -tolerance);
-            var inside = largestFirst.Where(i => i != outer && !taken.Contains(i) && room.Contains(frames[i])).ToList();
+            var inside = largestFirst.Where(i => i != outer && !taken.Contains(i) && IsInside(frames[i], frames[outer])).ToList();
             if (inside.Count == 0) continue;
             taken.Add(outer);
             taken.UnionWith(inside);
@@ -40,23 +40,30 @@ public static class Stacks
         return stacks;
     }
 
-    /// The tabs of a stack, in view space, in a row just below the outer window `viewOuter`: the
+    /// Enough of `w` lies within `outer`.
+    public static bool IsInside(RectD w, RectD outer)
+    {
+        double across = Math.Min(w.Right, outer.Right) - Math.Max(w.X, outer.X), down = Math.Min(w.Bottom, outer.Bottom) - Math.Max(w.Y, outer.Y);
+        return across > 0 && down > 0 && across * down >= InsideShare * w.W * w.H;
+    }
+
+    /// The tabs of a stack, in view space, in a row just below `viewBounds`, all of its windows: the
     /// same size at any zoom, narrower where they wouldn't fit its width, and always on screen.
     /// On whole pixels, or their text would blur.
-    public static RectD[] TabRects(RectD viewOuter, IReadOnlyList<double> textWidths, RectD view, double k)
+    public static RectD[] TabRects(RectD viewBounds, IReadOnlyList<double> textWidths, RectD view, double k)
     {
         int n = textWidths.Count;
         if (n == 0) return [];
         double h = Math.Round(Groups.LabelHeight * k), gap = Math.Round(TabGap * k), gaps = gap * (n - 1);
         var widths = textWidths.Select(t => Math.Min(t + 2 * Groups.LabelPad * k, TabMaxWidth * k)).ToArray();
-        if (widths.Sum() + gaps > viewOuter.W)
+        if (widths.Sum() + gaps > viewBounds.W)
         {
-            double even = (viewOuter.W - gaps) / n;
+            double even = (viewBounds.W - gaps) / n;
             widths = widths.Select(w => Math.Max(Math.Min(w, even), TabMinWidth * k)).ToArray();
         }
         double total = widths.Sum() + gaps;
-        double x = Math.Round(Math.Clamp(viewOuter.X, view.X, Math.Max(view.X, view.Right - total)));
-        double y = Math.Round(Math.Clamp(viewOuter.Bottom + TabDrop * k, view.Y, Math.Max(view.Y, view.Bottom - h)));
+        double x = Math.Round(Math.Clamp(viewBounds.X, view.X, Math.Max(view.X, view.Right - total)));
+        double y = Math.Round(Math.Clamp(viewBounds.Bottom + TabDrop * k, view.Y, Math.Max(view.Y, view.Bottom - h)));
         var tabs = new RectD[n];
         for (int i = 0; i < n; i++)
         {

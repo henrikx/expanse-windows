@@ -85,8 +85,8 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   it, stopping short of groups that aren't selected (`Groups.MoveTogether`). The rename box
   is a popup owned by the overlay, because the visual tree covers the overlay's child windows.
 - **Stacks** are worked out from where windows are, as groups are, in `src/Layout/Stacks.cs`: a window
-  inside another, give or take 16 px, is stacked with it, whichever is in front. The largest gets a row
-  of tabs below it on the canvas, with each app's icon, in an order that stays put. They stack with the
+  with at least 85% of its area inside a larger one is stacked with it, whichever is in front. A row of
+  tabs goes below them on the canvas, with each app's icon, in an order that stays put. They stack with the
   window in front, in its mark layer, so what's in front of that covers them, and a click on a tab raises the real window
   without moving the view. Maximised windows aren't part of this: they're meant to cover what's behind them.
 - **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes, and is
