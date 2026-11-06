@@ -124,6 +124,8 @@ sealed partial class Canvas
         public RectD StartBox;
         public ResizeEdges Edges;
         public RectD? Required;
+        /// What a group's border snaps to: the windows outside it and the other boxes, as they were when pressed.
+        public List<RectD> SnapTo = new();
         /// Where a window's border drag asks its windows to go, once it has moved (see Canvas.Resize).
         public RectD? ResizeTo;
         public bool FocusOnClick;

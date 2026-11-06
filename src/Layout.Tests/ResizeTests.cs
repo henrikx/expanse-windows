@@ -167,6 +167,53 @@ static class ResizeTests
         }
         expect($"snap: {snapsSwept} drags keep every rule", snapsWrong == 0, $"{snapsWrong} wrong, first {firstSnap}");
 
+        // --- Snapping a group's border ---
+        var groupBox = new RectD(0, 0, 400, 300);
+        var keepApps = new RectD(50, 50, 200, 100);
+        (RectD box, List<Layout.GuideLine> lines) GroupSnap(ResizeEdges edges, Vec delta, RectD? required, RectD[] others, RectD[] windows) =>
+            Groups.SnappedResizeBox(groupBox, groupBox, edges, delta, required, others, others.Concat(windows).ToList(), 1);
+        var other = new RectD(800, 0, 100, 100);
+        var aWindow = new RectD(600, 400, 100, 100);
+        Same("group snap: to a window's edge", new(0, 0, 600, 300), GroupSnap(ResizeEdges.Right, new(195, 0), keepApps, [], [aWindow]).box);
+        expect("group snap: with a guide", GroupSnap(ResizeEdges.Right, new(195, 0), keepApps, [], [aWindow]).lines.Count == 1, "no guide");
+        Same("group snap: to the gap before a window", new(0, 0, 600 - Layout.Gap, 300), GroupSnap(ResizeEdges.Right, new(175, 0), keepApps, [], [aWindow]).box);
+        Same("group snap: to another group's top, from the bottom edge", new(0, 0, 400, 400), GroupSnap(ResizeEdges.Bottom, new(0, 95), keepApps, [new(600, 400, 100, 100)], []).box);
+        Same("group snap: to the gap before another group", new(0, 0, 800 - Groups.Gap, 300), GroupSnap(ResizeEdges.Right, new(375, 0), keepApps, [other], []).box);
+        var turnedDown = GroupSnap(ResizeEdges.Right, new(395, 0), keepApps, [other], []);
+        Same("group snap: another group's edge is too close, so it stops at the gap", new(0, 0, 800 - Groups.Gap, 300), turnedDown.box);
+        expect("group snap: and shows no guide for the edge it didn't reach", turnedDown.lines.Count == 0, string.Join(" ", turnedDown.lines));
+        var hitApps = GroupSnap(ResizeEdges.Right, new(-148, 0), keepApps, [], [new(245, 400, 1, 10)]);
+        Same("group snap: its apps win over a snap", new(0, 0, 250, 300), hitApps.box);
+        expect("group snap: and leave no guide", hitApps.lines.Count == 0, string.Join(" ", hitApps.lines));
+        Same("group snap: an empty group's minimum wins too", new(0, 0, Groups.MinWidth + 5, 300),
+            GroupSnap(ResizeEdges.Right, new(Groups.MinWidth + 5 - 400, 0), null, [], [new(Groups.MinWidth - 3, 400, 1, 10)]).box);
+        Same("group snap: out of reach, it stays", new(0, 0, 470, 300), GroupSnap(ResizeEdges.Right, new(70, 0), keepApps, [], [aWindow]).box);
+
+        var groupOthers = new RectD[] { new(600, 0, 200, 200), new(0, 500, 300, 100), new(-300, 0, 200, 300) };
+        var groupWindows = new RectD[] { new(450, 350, 120, 90), new(-60, 340, 40, 40), new(420, -80, 100, 60) };
+        int groupSwept = 0, groupWrong = 0;
+        string firstGroup = "";
+        foreach (var edges in AllEdges)
+        foreach (double dx in deltas)
+        foreach (double dy in deltas)
+        foreach (double scale in new[] { 0.25, 0.5, 1 })
+        {
+            groupSwept++;
+            var (r, drawn) = Groups.SnappedResizeBox(groupBox, groupBox, edges, new(dx, dy), keepApps, groupOthers, groupOthers.Concat(groupWindows).ToList(), scale);
+            string? why =
+                !edges.HasFlag(ResizeEdges.Left) && r.X != groupBox.X ? "the left edge moved" :
+                !edges.HasFlag(ResizeEdges.Top) && r.Y != groupBox.Y ? "the top edge moved" :
+                !edges.HasFlag(ResizeEdges.Right) && r.Right != groupBox.Right ? "the right edge moved" :
+                !edges.HasFlag(ResizeEdges.Bottom) && r.Bottom != groupBox.Bottom ? "the bottom edge moved" :
+                !r.Contains(keepApps) ? "cut through its apps" :
+                groupOthers.Any(o => r.Intersects(o.Inset(-Groups.Gap, -Groups.Gap))) ? "within the gap of another group" :
+                drawn.Any(l => l.From.X == l.To.X ? Math.Abs(l.From.X - r.X) >= 0.5 && Math.Abs(l.From.X - r.Right) >= 0.5 : Math.Abs(l.From.Y - r.Y) >= 0.5 && Math.Abs(l.From.Y - r.Bottom) >= 0.5) ? "a guide off the box" : null;
+            if (why == null) continue;
+            groupWrong++;
+            if (firstGroup.Length == 0) firstGroup = $"{edges} by {dx},{dy} at {scale}: {why}, {r}";
+        }
+        expect($"group snap: {groupSwept} drags keep every rule", groupWrong == 0, $"{groupWrong} wrong, first {firstGroup}");
+
         // --- Where it lands ---
         var target = new RectD(100, 100, 800, 600);
         var refused = new SizeD(900, 650);

@@ -252,6 +252,24 @@ public static class Groups
         return Grow(current, Resizing.Resize(start, edges, delta, minimum, required), others);
     }
 
+    /// The same drag with its edges snapped to `snapTo` (see Layout.SnapEdges). The box's rules come
+    /// after the snap, so its apps and the other groups still have the last word, and a snap they
+    /// turn down leaves no guide line behind.
+    public static (RectD box, List<Layout.GuideLine> lines) SnappedResizeBox(RectD start, RectD current, ResizeEdges edges, Vec delta, RectD? required,
+        IReadOnlyList<RectD> others, IReadOnlyList<RectD> snapTo, double scale)
+    {
+        var minimum = required == null ? new SizeD(MinWidth, MinHeight) : new SizeD(0, 0);
+        var free = Resizing.Resize(start, edges, delta, minimum, required);
+        var unlimited = new SizeD(double.PositiveInfinity, double.PositiveInfinity);
+        var (snapped, lines) = Layout.SnapEdges(free, start, edges, snapTo, scale, minimum, unlimited);
+        var moved = new Vec(edges.HasFlag(ResizeEdges.Left) ? snapped.X - start.X : snapped.Right - start.Right,
+            edges.HasFlag(ResizeEdges.Top) ? snapped.Y - start.Y : snapped.Bottom - start.Bottom);
+        var box = ResizeBox(start, current, edges, moved, required, others);
+        static bool On(double at, double a, double b) => Math.Abs(at - a) < 0.5 || Math.Abs(at - b) < 0.5;
+        lines = lines.Where(l => l.From.X == l.To.X ? On(l.From.X, box.X, box.Right) : On(l.From.Y, box.Y, box.Bottom)).ToList();
+        return (box, lines);
+    }
+
     /// A marquee takes a group only when it covers the whole box.
     public static bool CoveredBy(RectD marquee, RectD box) => marquee.Contains(box);
 

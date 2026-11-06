@@ -332,7 +332,12 @@ sealed partial class Canvas
                 StartRename(g);
                 return false;
             case GroupPart.Border:
-                drag = new Drag(DragKind.GroupResize, p) { Group = g, StartBox = g.Box, Edges = edges, Required = RequiredBox(g) };
+                var members = MembersOf(g).ToHashSet();
+                drag = new Drag(DragKind.GroupResize, p)
+                {
+                    Group = g, StartBox = g.Box, Edges = edges, Required = RequiredBox(g),
+                    SnapTo = windows.Where(w => !members.Contains(w)).Select(w => w.Frame).Concat(OtherBoxes(g)).ToList(),
+                };
                 SetCursor(LoadCursor(0, ResizeCursor(edges)));
                 return true;
             case GroupPart.Body or GroupPart.Label when together:
@@ -374,7 +379,17 @@ sealed partial class Canvas
         if (d.What == DragKind.GroupResize)
         {
             d.Moved = true;
-            g.Box = Groups.ResizeBox(d.StartBox, g.Box, d.Edges, delta, d.Required, others);
+            if (snap)
+            {
+                var (box, guideLines) = Groups.SnappedResizeBox(d.StartBox, g.Box, d.Edges, delta, d.Required, others, d.SnapTo, camera.Scale);
+                g.Box = box;
+                ShowGuides(guideLines);
+            }
+            else
+            {
+                g.Box = Groups.ResizeBox(d.StartBox, g.Box, d.Edges, delta, d.Required, others);
+                ShowGuides(new());
+            }
             Redraw();
             return;
         }
