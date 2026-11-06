@@ -49,7 +49,66 @@ public static class Resizing
         }
         return new RectD(left, top, right - left, bottom - top);
     }
+
+    /// How far a window's border can be grabbed from, outside and inside its picture, and the
+    /// smallest picture that has a border to grab, in view pixels at a display scale of 1. Less
+    /// inside than out: the rest of the picture is for moving the window.
+    public const double WindowGrabOutside = 6, WindowGrabInside = 3, SmallestToGrab = 24;
+    /// The smallest a drag makes a window, on the canvas. An app may keep it bigger.
+    public static readonly SizeD WindowMinimum = new(160, 100);
+
+    /// The edges of a window's picture `box` that `p` can grab. `k` is the display scale.
+    public static ResizeEdges WindowEdgesAt(RectD box, Vec p, double k)
+    {
+        if (box.W < SmallestToGrab * k || box.H < SmallestToGrab * k) return ResizeEdges.None;
+        double outside = WindowGrabOutside * k, inside = WindowGrabInside * k;
+        if (p.X < box.X - outside || p.X > box.Right + outside || p.Y < box.Y - outside || p.Y > box.Bottom + outside) return ResizeEdges.None;
+        ResizeEdges Axis(double at, double low, double high, ResizeEdges lowEdge, ResizeEdges highEdge) =>
+            at <= low + inside ? lowEdge : at >= high - inside ? highEdge : ResizeEdges.None;
+        return Axis(p.X, box.X, box.Right, ResizeEdges.Left, ResizeEdges.Right)
+             | Axis(p.Y, box.Y, box.Bottom, ResizeEdges.Top, ResizeEdges.Bottom);
+    }
+
+    /// The window whose border `p` grabs, of `bottomFirst` in view space. The first window from the
+    /// front with its border or picture there decides, so nothing covered can be grabbed through
+    /// one in front, and a dialog covers its own window's border.
+    public static (int index, ResizeEdges edges)? WindowEdgeAt(IReadOnlyList<GrabbableWindow> bottomFirst, Vec p, double k)
+    {
+        for (int i = bottomFirst.Count - 1; i >= 0; i--)
+        {
+            var w = bottomFirst[i];
+            if (w.Owned.Any(o => o.Contains(p))) return null;
+            if (w.Resizable && WindowEdgesAt(w.Frame, p, k) is var edges && edges != ResizeEdges.None) return (i, edges);
+            if (w.Frame.Contains(p)) return null;
+        }
+        return null;
+    }
+
+    /// Where a border drag of a window asks it to go, on whole pixels: no smaller than `minimum`
+    /// (or than it was, if that's less) and on the sides dragged no larger than `maximum`. The edges
+    /// not being dragged stay exactly where they are.
+    public static RectD ResizeWindow(RectD start, ResizeEdges edges, Vec delta, SizeD minimum, SizeD maximum)
+    {
+        var floor = new SizeD(Math.Min(minimum.W, start.W), Math.Min(minimum.H, start.H));
+        var r = Resize(start, edges, new Vec(Layout.Round(delta.X), Layout.Round(delta.Y)), floor);
+        double x = r.X, y = r.Y, w = r.W, h = r.H;
+        if (edges.HasFlag(ResizeEdges.Left) && w > maximum.W) { x = r.Right - maximum.W; w = maximum.W; }
+        else if (edges.HasFlag(ResizeEdges.Right) && w > maximum.W) w = maximum.W;
+        if (edges.HasFlag(ResizeEdges.Top) && h > maximum.H) { y = r.Bottom - maximum.H; h = maximum.H; }
+        else if (edges.HasFlag(ResizeEdges.Bottom) && h > maximum.H) h = maximum.H;
+        return new RectD(x, y, w, h);
+    }
+
+    /// Where a window lands when its app gave it `actual` after a drag asked for `target`: the
+    /// edges that weren't dragged stay, so one that won't take the size grows or stops on the sides dragged.
+    public static RectD Anchored(RectD target, ResizeEdges edges, SizeD actual) => new(
+        edges.HasFlag(ResizeEdges.Left) ? target.Right - actual.W : target.X,
+        edges.HasFlag(ResizeEdges.Top) ? target.Bottom - actual.H : target.Y,
+        actual.W, actual.H);
 }
+
+/// A window for finding whose border is under the pointer. `Owned`: its dialogs' pictures.
+public readonly record struct GrabbableWindow(RectD Frame, bool Resizable, IReadOnlyList<RectD> Owned);
 
 public sealed record CreatedGroup(RectD Box, RectD[] Apps);
 public sealed record SettledGroups(RectD[] Boxes, RectD[] Apps);
@@ -60,6 +119,10 @@ public sealed record SettledGroups(RectD[] Boxes, RectD[] Apps);
 public static class Groups
 {
     public const double Padding = 24, Gap = Layout.Gap, MinWidth = 240, MinHeight = 160;
+
+    /// Group Selection Zoom, as the minimap rounds the zoom: at `setting` percent or lower, a
+    /// group's apps are too small to aim at. At most 99, as 100 would take every click on a grouped app.
+    public static bool TakeClicksAt(double scale, int setting) => Math.Round(scale * 100) <= Math.Clamp(setting, 0, 99);
     /// The label, at a display scale of 1.
     public const double LabelPad = 10, LabelMaxWidth = 320, LabelHeight = 22, LabelLift = 6;
 

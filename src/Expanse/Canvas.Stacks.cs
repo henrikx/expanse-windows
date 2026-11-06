@@ -10,11 +10,12 @@ sealed partial class Canvas
 {
     readonly record struct StackTab(CanvasWindow Window, CanvasWindow OnTop, string Text, RectD Rect, IconImage? Icon);
 
-    /// Not under a drag: where a window lands decides its stack.
+    /// Not under a drag: where a window lands decides its stack. Nor zoomed out past Group Selection
+    /// Zoom, once they've faded with the groups turning dark (see CurrentMarks).
     List<StackTab> StackTabs(double k)
     {
         var tabs = new List<StackTab>();
-        if (!active || gliding || drag != null) return tabs;
+        if (!active || gliding || drag != null || (GroupsTakeClicks && groupSolidity >= 1)) return tabs;
         // A maximised window is meant to cover what's behind it.
         var open = windows.Where(w => !w.Maximised).ToList();
         var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList());
@@ -102,9 +103,10 @@ sealed partial class Canvas
         w.Title.Length > 0 && members.Count(m => m.AppName == w.AppName) > 1 ? w.Title : w.AppName;
 
     /// The window of the tab under `p`. The panels sit over the tabs, as does any window in front.
+    /// Fading out, they're on their way, and no longer take clicks.
     CanvasWindow? TabAt(Vec p)
     {
-        if (OverPanel(p)) return null;
+        if (OverPanel(p) || GroupsTakeClicks) return null;
         foreach (var tab in StackTabs(UiScale))
             if (tab.Rect.Contains(p) && !InFrontOf(tab.OnTop, p)) return tab.Window;
         return null;
@@ -113,7 +115,7 @@ sealed partial class Canvas
     /// The stack whose fit button is under `p`: its front window and all its windows.
     (CanvasWindow front, List<CanvasWindow> members)? FitAt(Vec p)
     {
-        if (OverPanel(p)) return null;
+        if (OverPanel(p) || GroupsTakeClicks) return null;
         double k = UiScale;
         foreach (var stack in StackTabs(k).GroupBy(t => t.OnTop))
             if (Stacks.FitRect(stack.First().Rect, k).Contains(p) && !InFrontOf(stack.Key, p))
@@ -147,9 +149,11 @@ sealed partial class Canvas
         foreach (var w in members.Where(m => m != front))
         {
             var from = w.Frame;
-            var actual = ResizeReal(w, to.Size);
+            var actual = ResizeReal(w, to.Size, remakePicture: false);
             if (!w.SizesItself) w.Preferred = actual;
             w.Frame = Stacks.Fitted(to, actual);
+            // Made from the frame, so only now that it has the new size.
+            if (active) pictures.Resized(w);
             var by = w.Frame.Origin - from.Origin;
             foreach (var o in w.Owned) o.Frame = o.Frame.Offset(by);
             if (active) PictureMoved(w);

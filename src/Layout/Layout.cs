@@ -529,4 +529,49 @@ public static class Layout
         }
         return (outFrame, lines);
     }
+
+    /// Snap the edges of a border drag to `others`, as Snap does a moved frame: to their edges and
+    /// the standard gap, within the same reach. Only the edges being dragged move, and none so far
+    /// that the frame goes under `minimum` (or under `start`, if that's less) or over `maximum`:
+    /// the next nearest that fits snaps instead. Centres don't count, as a frame's centre
+    /// isn't what you're moving here. Returns guide lines in canvas space.
+    public static (RectD frame, List<GuideLine> lines) SnapEdges(RectD f, RectD start, ResizeEdges edges, IReadOnlyList<RectD> others,
+        double scale, SizeD minimum, SizeD maximum)
+    {
+        double firm = 10 / scale;
+        (double at, double? line)? Nearest(double edge, IEnumerable<(double at, double? line)> targets, Func<double, bool> fits)
+        {
+            (double at, double? line)? best = null;
+            foreach (var t in targets)
+            {
+                double d = Math.Abs(t.at - edge);
+                if (d < firm && fits(t.at) && (best == null || d < Math.Abs(best.Value.at - edge))) best = t;
+            }
+            return best;
+        }
+        double floorW = Math.Min(minimum.W, start.W), floorH = Math.Min(minimum.H, start.H);
+        bool WideEnough(double w) => w >= floorW && w <= maximum.W;
+        bool TallEnough(double h) => h >= floorH && h <= maximum.H;
+
+        double left = f.X, right = f.Right, top = f.Y, bottom = f.Bottom;
+        double? lineX = null, lineY = null;
+        if (edges.HasFlag(ResizeEdges.Left) && Nearest(left, others.SelectMany(r => new (double, double?)[] { (r.X, r.X), (r.Right, r.Right), (r.Right + Gap, null) }), v => WideEnough(right - v)) is var (l, ll)) { left = l; lineX = ll; }
+        if (edges.HasFlag(ResizeEdges.Right) && Nearest(right, others.SelectMany(r => new (double, double?)[] { (r.X, r.X), (r.Right, r.Right), (r.X - Gap, null) }), v => WideEnough(v - left)) is var (rr, rl)) { right = rr; lineX = rl; }
+        if (edges.HasFlag(ResizeEdges.Top) && Nearest(top, others.SelectMany(r => new (double, double?)[] { (r.Y, r.Y), (r.Bottom, r.Bottom), (r.Bottom + Gap, null) }), v => TallEnough(bottom - v)) is var (t, tl)) { top = t; lineY = tl; }
+        if (edges.HasFlag(ResizeEdges.Bottom) && Nearest(bottom, others.SelectMany(r => new (double, double?)[] { (r.Y, r.Y), (r.Bottom, r.Bottom), (r.Y - Gap, null) }), v => TallEnough(v - top)) is var (b, bl)) { bottom = b; lineY = bl; }
+
+        var snapped = new RectD(Round(left), Round(top), Round(right) - Round(left), Round(bottom) - Round(top));
+        var lines = new List<GuideLine>();
+        if (lineX is double x)
+        {
+            var span = others.Where(o => Math.Abs(o.X - x) < 0.5 || Math.Abs(o.Right - x) < 0.5).Aggregate(snapped, (acc, r) => acc.Union(r));
+            lines.Add(new GuideLine(new Vec(x, span.Y), new Vec(x, span.Bottom)));
+        }
+        if (lineY is double y)
+        {
+            var span = others.Where(o => Math.Abs(o.Y - y) < 0.5 || Math.Abs(o.Bottom - y) < 0.5).Aggregate(snapped, (acc, r) => acc.Union(r));
+            lines.Add(new GuideLine(new Vec(span.X, y), new Vec(span.Right, y)));
+        }
+        return (snapped, lines);
+    }
 }

@@ -103,7 +103,7 @@ readonly record struct StackTabDrawing(nint Hwnd, nint Layer, string Text, RectD
 /// View coordinates. Rings and close buttons belong to a window (its handle), and stack with its
 /// picture. `Closes`: the pictures showing a close button (see Marks.CloseRect). `Tabs`: see StackTabDrawing.
 readonly record struct Marks(IReadOnlyList<(nint hwnd, RectD picture, bool selected)> Rings, RectD? SelectionBox, RectD? Marquee,
-    IReadOnlyList<(nint hwnd, RectD picture)> Closes, IReadOnlyList<StackTabDrawing> Tabs)
+    IReadOnlyList<(nint hwnd, RectD picture)> Closes, IReadOnlyList<StackTabDrawing> Tabs, double TabOpacity = 1)
 {
     public static readonly Marks None = new([], null, null, [], []);
 

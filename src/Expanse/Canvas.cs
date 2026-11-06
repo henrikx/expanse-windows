@@ -97,7 +97,7 @@ sealed partial class Canvas
     /// their new size is the size you chose.
     readonly HashSet<nint> userSized = new();
 
-    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize }
+    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize, WindowResize }
     readonly Minimap minimap = new();
     readonly DesktopsPanel desktopsPanel = new();
     int hoveredDesktop = -1;
@@ -124,6 +124,8 @@ sealed partial class Canvas
         public RectD StartBox;
         public ResizeEdges Edges;
         public RectD? Required;
+        /// Where a window's border drag asks its windows to go, once it has moved (see Canvas.Resize).
+        public RectD? ResizeTo;
         public bool FocusOnClick;
         /// A pan by the middle button, which ends when the real button is up (see EndPanIfMiddleUp).
         public bool WatchMiddle;
@@ -761,7 +763,7 @@ sealed partial class Canvas
 
     /// Resizes the real window (its visible frame to `size`). Synchronous, to read back what the
     /// app accepted; a hung app is left alone.
-    SizeD ResizeReal(CanvasWindow w, SizeD size)
+    SizeD ResizeReal(CanvasWindow w, SizeD size, bool remakePicture = true)
     {
         if (IsHungAppWindow(w.Hwnd) || IsZoomed(w.Hwnd) || w.SizesItself) return w.Frame.Size;
         int width = (int)size.W + w.Insets.Left + w.Insets.Right, height = (int)size.H + w.Insets.Top + w.Insets.Bottom;
@@ -770,7 +772,7 @@ sealed partial class Canvas
         var actual = new SizeD(f.Width, f.Height);
         w.LastSized = actual;
         w.LastSizedAt = Environment.TickCount64;
-        if (active) pictures.Resized(w);
+        if (active && remakePicture) pictures.Resized(w);
         return actual;
     }
 
@@ -1422,6 +1424,10 @@ sealed partial class Canvas
             RaiseStacked(tabbed);
             return;
         }
+        else if (!ctrl && !shift && WindowEdgeAt(p) is (CanvasWindow edged, ResizeEdges sides))
+        {
+            PressWindowEdge(edged, sides, p);
+        }
         else if (WindowAt(p) is CanvasWindow w)
         {
             double k = UiScale;
@@ -1474,6 +1480,9 @@ sealed partial class Canvas
                 return;
             case DragKind.GroupMove or DragKind.GroupResize:
                 DragGroup(d, p, snap);
+                return;
+            case DragKind.WindowResize:
+                DragWindowEdge(d, p, snap);
                 return;
             case DragKind.Pan:
                 if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return; // still a click
@@ -1546,22 +1555,31 @@ sealed partial class Canvas
             case DragKind.GroupMove or DragKind.GroupResize:
                 EndGroupDrag(d, click);
                 break;
+            case DragKind.WindowResize:
+                EndWindowEdgeDrag(d, click);
+                break;
             case DragKind.Windows when click && d.Clicked == null:
                 // On a selected group, not on one of its apps.
                 ClearSelection();
                 if (d.FocusOnClick) FocusGroup(d.Group!);
                 break;
             case DragKind.Windows when click:
-                Log.Info($"click on {d.Clicked}");
-                ClearSelection();
-                if (GroupTakingClick(d.Clicked!) is CanvasGroup clickedGroup) FocusGroup(clickedGroup, d.Clicked);
-                else Exit(d.Clicked, keepView: true);
+                ClickWindow(d.Clicked!);
                 break;
             case DragKind.Marquee when d.Moved:
                 Log.Info($"marquee: {selected.Count} windows and {selectedGroups.Count} groups selected");
                 break;
         }
         Redraw();
+    }
+
+    /// A click on a window, zoomed out: into it, or to its group.
+    void ClickWindow(CanvasWindow w)
+    {
+        Log.Info($"click on {w}");
+        ClearSelection();
+        if (GroupTakingClick(w) is CanvasGroup clickedGroup) FocusGroup(clickedGroup, w);
+        else Exit(w, keepView: true);
     }
 
     /// Part of a selection of more than one window, or with a group (× and Ctrl+W close the windows together).
@@ -1723,6 +1741,8 @@ sealed partial class Canvas
             // Mid-drag the window stays under the pointer by zooming around it, straight away.
             if (drag != null)
             {
+                // A border drag goes by how far the pointer has come at this zoom.
+                if (drag.What == DragKind.WindowResize) return;
                 zoomOut = null;
                 ZoomBy(Math.Pow(1.2, delta / 120.0), pointer);
             }
@@ -3040,7 +3060,9 @@ sealed partial class Canvas
         var stacked = StackTabs(k);
         var tabs = stacked.Select(t => new StackTabDrawing(t.Window.Hwnd, t.OnTop.Hwnd, t.Text, t.Rect, t.Window == t.OnTop, t.Icon)).ToList();
         tabs.AddRange(stacked.GroupBy(t => t.OnTop).Select(s => new StackTabDrawing(0, s.Key.Hwnd, "", Stacks.FitRect(s.First().Rect, k), false, null, FitButton: true)));
-        return new Marks(rings, box, marquee, closes, tabs);
+        // A border being dragged shows where the window will go, the way a marquee shows what it takes.
+        var outline = drag is { What: DragKind.WindowResize, ResizeTo: RectD to } ? camera.ToView(to) : marquee;
+        return new Marks(rings, box, outline, closes, tabs, 1 - groupSolidity);
     }
 
     /// Windows that get a title, bottom-most first: not tiny, in view, and not with their top

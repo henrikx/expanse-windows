@@ -75,6 +75,8 @@ sealed class SharedVisualPictures : IPictures
     readonly IDCompositionVisual2 root, desktop, canvas, titles;
     Picture? desktopPicture;
     readonly Strips accent, marqueeFill, guides;
+    /// The stack tabs' opacity as they fade out, shared by all of them.
+    readonly IDCompositionEffectGroup tabFade;
     readonly Dictionary<nint, MarkLayer> markLayers = new();
     IDCompositionSurface? closeSurface;
     double closeScale;
@@ -162,6 +164,7 @@ sealed class SharedVisualPictures : IPictures
         device.CreateVisual(out canvas);
         canvas.SetBitmapInterpolationMode(BitmapInterpolationMode.Linear);
         root.AddVisual(canvas, false, null);
+        device.CreateEffectGroup(out tabFade);
         accent = new Strips(this, 76 / 255f, 154 / 255f, 1f);
         marqueeFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.12f);
         device.CreateVisual(out titles);
@@ -402,6 +405,7 @@ sealed class SharedVisualPictures : IPictures
     public void SetMarks(Marks marks, double scale)
     {
         var rects = new List<RectD>();
+        tabFade.SetOpacity((float)marks.TabOpacity);
         double gap = Math.Max(1, Math.Round(2 * scale)), thin = Math.Max(1, Math.Round(scale));
         if (marks.SelectionBox is RectD box) Outline(rects, box.Inset(-8 * scale, -8 * scale), thin);
         if (marks.Marquee is RectD m) Outline(rects, m, thin);
@@ -456,6 +460,8 @@ sealed class SharedVisualPictures : IPictures
                 // Like the close button: at the screen's pixel size, whatever the camera's zoom.
                 t.Visual.SetTransform(new Matrix3x2((float)(1 / s), 0, 0, (float)(1 / s),
                     (float)(tab.Rect.X / s + ox), (float)(tab.Rect.Y / s + oy)));
+                // Only during a fade, so a tab that isn't fading is drawn just as before.
+                t.Visual.SetEffect(marks.TabOpacity < 1 ? tabFade : null);
                 layer.Container.AddVisual(t.Visual, false, null);
             }
             foreach (nint gone in layer.Tabs.Keys.Where(h => ownTabs.All(t => t.Hwnd != h)).ToList())
@@ -1056,6 +1062,7 @@ sealed class SharedVisualPictures : IPictures
         buttonLayer.Dispose();
         accent.Dispose();
         marqueeFill.Dispose();
+        tabFade.Dispose();
         guides.Dispose();
         closeSurface?.Dispose();
         minimapSurface?.Dispose();

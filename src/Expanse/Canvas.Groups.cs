@@ -153,14 +153,14 @@ sealed partial class Canvas
 
     /// Zoomed out this far (Group Selection Zoom, as the minimap rounds it) a group's apps are too
     /// small to aim at: a click on one goes to its group. Dragging one, Shift and its × still work.
-    bool GroupsTakeClicks => Math.Round(camera.Scale * 100) <= Math.Clamp(settings.GroupClickZoom, 0, 99);
+    bool GroupsTakeClicks => Groups.TakeClicksAt(camera.Scale, settings.GroupClickZoom);
 
     /// Group Selection Zoom…: asks, and the boxes fade to suit straight away if the canvas is up.
     void ChooseGroupZoom()
     {
         // At most 99: 100 would take every click on a grouped app.
         if (PercentDialog.Ask("Group Selection Zoom",
-            "At this zoom or lower, clicking an app in a group goes to the group, and the group's box turns dark.",
+            "At this zoom or lower, clicking an app in a group goes to the group, the group's box turns dark, stack tabs fade out and windows can't be resized.",
             "Zoom, 0 to 99 (0 turns it off):", Math.Clamp(settings.GroupClickZoom, 0, 99), 0, 99) is int zoom)
         {
             settings.GroupClickZoom = zoom;
@@ -226,7 +226,9 @@ sealed partial class Canvas
         if (drag != null) return 0;
         if (NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p)) return LoadCursor(0, IDC_HAND);
         if (TreePanel.Contains(p)) return treeHover >= 0 ? LoadCursor(0, IDC_HAND) : 0;
-        if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || WindowAt(p) != null) return 0;
+        if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p)) return 0;
+        if (WindowEdgeAt(p) is (CanvasWindow, ResizeEdges windowEdges)) return LoadCursor(0, ResizeCursor(windowEdges));
+        if (WindowAt(p) != null) return 0;
         if (GroupHitAt(p) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
         return part switch
         {

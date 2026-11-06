@@ -91,6 +91,7 @@ start it with Windows.
 | Scroll | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
 | Middle-button drag | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
+| Drag a window's edge or corner while zoomed out | Resize it when you let go, or the whole stack if it's in one; its edges snap to other windows. Not larger than the screen, and an app that won't take the size gets as close as it allows. Only above Group Selection Zoom |
 | <kbd>Ctrl</kbd> + <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |
 | Just type | Search the groups and apps |
 | <kbd>Esc</kbd> | Back to 100% |
@@ -113,12 +114,12 @@ start it with Windows.
 | Click or drag in the minimap | Move the view there |
 | Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, and any group the box wholly covers, then drag any of them to move them all |
 | <kbd>Shift</kbd> + drag · <kbd>Ctrl</kbd> or <kbd>Shift</kbd> + drag inside a group's box | Add to the selection · select there instead of moving the group |
-| Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
+| Hold <kbd>Ctrl</kbd> while dragging | Move or resize without snapping |
 | Drop a window inside another · click a tab below them | Stack them, with a tab for each · bring that window to the front. At 100% the tabs show while you're in the stack or another app in its group, and clicking one also gives that window focus |
 | Click the button left of a stack's tabs | Make every window in the stack the size of the one in front and line them up with it. An app that won't take that size gets as close as it allows |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
-| Click an app in a group, at 50% zoom or less (the groups' boxes turn dark; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
+| Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |
