@@ -53,7 +53,7 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   the tray's Auto-Centre When Hidden, 25% to begin with; a window too big for the screen counts only
   what could have fit. Picking a window in the canvas at 100% goes by the same share. With Nudge
   Focused Window Into View, on to begin with, the view moves only enough to show the window, with
-  some padding; off, it centres the window. Centre Current Window, hops, new windows and picks from
+  some padding, and a new window that opens out of view is shown the same way; off, it centres the window. Centre Current Window, hops and picks from
   zoomed out still centre. The view moves for focus only once every mouse button is up, so not under
   a drag; a window that press moved or resized stays where you put it. Focus handed on by Windows after
   you close or minimise one doesn't count.

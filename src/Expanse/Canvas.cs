@@ -908,7 +908,7 @@ sealed partial class Canvas
         Log.Info($"placed new window {w} at {o.X:0},{o.Y:0}{(anchor != null ? $" beside {anchor}" : "")}");
         if (active) return; // its picture goes there; the window follows at the hand-back
         if (visible.Contains(w.Frame)) Place(w);
-        else Glide(w, sync: false); // a sync now would read it back from where the app opened it
+        else Glide(w, sync: false, nudge: w); // a sync now would read it back from where the app opened it
     }
 
     /// Canvas = screen - monitor origin + the 100% camera's origin. Zoomed out, the real windows
