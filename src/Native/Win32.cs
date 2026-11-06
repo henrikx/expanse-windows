@@ -261,7 +261,7 @@ public static class User32
 
     public const uint PM_REMOVE = 1;
     public const uint MONITOR_DEFAULTTOPRIMARY = 1, MONITOR_DEFAULTTONEAREST = 2;
-    public const int IDC_ARROW = 32512, IDC_HAND = 32649;
+    public const int IDC_ARROW = 32512, IDC_CROSS = 32515, IDC_HAND = 32649;
     public const uint CS_HREDRAW = 2, CS_VREDRAW = 1;
     public const uint SPI_GETDESKWALLPAPER = 0x73;
     public const int SM_CXSCREEN = 0, SM_CYSCREEN = 1, SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77,

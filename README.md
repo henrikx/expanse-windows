@@ -121,6 +121,7 @@ start it with Windows.
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box, its edges snapping to other windows and groups |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
+| Click the coloured circle by a group's name | Open a colour wheel: press or drag on it to recolour the group, and let go to keep the colour. <kbd>Esc</kbd> or a click elsewhere leaves it as it was |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |
 | <kbd>0</kbd> · <kbd>1</kbd> · <kbd>-</kbd> · <kbd>=</kbd> | Fit everything · 100% · zoom out · zoom in |
 | Arrow keys · <kbd>Return</kbd> | Move the highlight · dive into the highlighted window |
@@ -147,7 +148,8 @@ the canvas, even if part of it still reaches the other screen.
 
 **Groups** are named boxes on the canvas. An app whose centre is inside a box is in that group, so
 dragging one in adds it and dragging it out removes it, and the box grows to fit. Boxes never
-overlap, stay until you delete them, and show only on the canvas, not at 100%.
+overlap, stay until you delete them, and show only on the canvas, not at 100%. A new group gets a
+random colour, which tints its box, lightly at first and darker at Group Selection Zoom.
 
 **The groups panel** on the right of the canvas lists every group and its apps, with the apps in
 no group under Other apps. Click a row to go there. The search bar looks through group names, app

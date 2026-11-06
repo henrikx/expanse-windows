@@ -36,6 +36,8 @@ sealed class SavedGroup
     /// The virtual desktop it's on. Null: saved before groups had one, or the desktop wasn't known.
     public Guid? Desktop { get; set; }
     public bool Collapsed { get; set; }
+    /// 0xRRGGBB. Null: saved before groups had colours, which were all blue.
+    public int? Colour { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
     public double W { get; set; }

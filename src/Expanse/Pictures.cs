@@ -62,6 +62,9 @@ interface IPictures : IDisposable
     /// them only if it DrawsDecorations (the overlay does otherwise).
     void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity);
 
+    /// The colour wheel over everything, or none. Only for a kind that DrawsDecorations.
+    void SetColourWheel(ColourWheelDrawing? wheel, double scale);
+
     /// The groups panel, or none. False if this kind can't draw it (the caller draws it on the backdrop).
     bool SetTreePanel(TreeDrawing? tree, double scale);
 
@@ -92,8 +95,13 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
         Panel == o.Panel && Search == o.Search && List == o.List && Query == o.Query && Empty == o.Empty && Dark == o.Dark && Typing == o.Typing && Rows.SequenceEqual(o.Rows);
 }
 
-/// A group in view coordinates: its box, its name's pill and the delete button beside it.
-readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Label, RectD Trash, bool Hovered);
+/// A group in view coordinates: its box, the circle with its colour, its name's pill and the delete
+/// button beside it.
+readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Trash, bool Hovered, GroupColour Colour);
+
+/// The colour wheel in view coordinates. `Shown`: where it is right now, as it grows into `Rect`.
+/// `Marker`: the group's colour on it, once it's grown to `Rect`.
+readonly record struct ColourWheelDrawing(RectD Shown, RectD Rect, Vec Marker);
 
 /// A window's tab in its stack, in view coordinates. `Front`: the one on top. `Layer`: that window,
 /// whose place in the stack the tabs take, so what's in front of it covers them. `FitButton`: the
@@ -195,6 +203,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public void SetLabels(IReadOnlyList<Label> labels, double scale) { }
     public void SetMarks(Marks marks, double scale) { }
     public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity) { }
+    public void SetColourWheel(ColourWheelDrawing? wheel, double scale) { }
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
     public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;

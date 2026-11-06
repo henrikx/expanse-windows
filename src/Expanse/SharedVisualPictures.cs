@@ -99,8 +99,13 @@ sealed class SharedVisualPictures : IPictures
     readonly Dictionary<nint, Title> titleVisuals = new();
     readonly Dictionary<long, Title> groupTitles = new();
     readonly Dictionary<long, IDCompositionVisual2> groupTrash = new();
-    readonly Strips groupFill, groupFillHover, groupEdge, groupEdgeHover;
-    readonly IDCompositionVisual2 groupLabels, buttonLayer;
+    /// Each group's tint and border, in its own colour.
+    readonly Dictionary<long, (Strips fill, Strips edge)> groupBoxes = new();
+    readonly Dictionary<long, Swatch> groupSwatches = new();
+    readonly IDCompositionVisual2 groupBoxLayer, groupLabels, buttonLayer;
+    readonly IDCompositionVisual2 wheelLayer, wheelVisual, wheelMarker;
+    IDCompositionSurface? wheelSurface, markerSurface;
+    int wheelSize, markerSize;
     Title? newGroupTitle;
     readonly IDCompositionVisual2 treeVisual;
     IDCompositionSurface? treeSurface;
@@ -155,10 +160,8 @@ sealed class SharedVisualPictures : IPictures
         device.CreateVisual(out desktop);
         root.AddVisual(desktop, false, null);
         // Groups: over the desktop, under the pictures, so a preview is never tinted.
-        groupFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.08f);
-        groupFillHover = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.14f);
-        groupEdge = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.5f);
-        groupEdgeHover = new Strips(this, 76 / 255f, 154 / 255f, 1f, 1f);
+        device.CreateVisual(out groupBoxLayer);
+        root.AddVisual(groupBoxLayer, false, null);
         device.CreateVisual(out groupLabels);
         root.AddVisual(groupLabels, false, null);
         device.CreateVisual(out canvas);
@@ -178,6 +181,11 @@ sealed class SharedVisualPictures : IPictures
         root.AddVisual(treeVisual, false, null);
         device.CreateVisual(out buttonLayer);
         root.AddVisual(buttonLayer, false, null);
+        device.CreateVisual(out wheelLayer);
+        wheelLayer.SetBitmapInterpolationMode(BitmapInterpolationMode.Linear);
+        root.AddVisual(wheelLayer, false, null);
+        device.CreateVisual(out wheelVisual);
+        device.CreateVisual(out wheelMarker);
         device.Commit();
         Log.Info($"pictures: shared visuals (D3D11 {driver})");
     }
@@ -477,19 +485,6 @@ sealed class SharedVisualPictures : IPictures
     public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity)
     {
         double thin = Math.Max(1, Math.Round(scale * (1 + solidity)));
-        float s = (float)solidity;
-        // From the light blue to a dark one, which shows on any wallpaper.
-        static float Mix(float from, float to, float t) => from + (to - from) * t;
-        groupFill.SetColour(Mix(76, 8, s) / 255f, Mix(154, 30, s) / 255f, Mix(255, 90, s) / 255f, Mix(0.08f, 0.55f, s));
-        groupFillHover.SetColour(Mix(76, 20, s) / 255f, Mix(154, 60, s) / 255f, Mix(255, 150, s) / 255f, Mix(0.14f, 0.7f, s));
-        groupEdge.SetColour(Mix(76, 30, s) / 255f, Mix(154, 90, s) / 255f, Mix(255, 200, s) / 255f, Mix(0.5f, 1f, s));
-        var edges = new List<RectD>();
-        var hoverEdges = new List<RectD>();
-        foreach (var g in groups) Outline(g.Hovered ? hoverEdges : edges, g.Box, thin);
-        groupFill.Set(groups.Where(g => !g.Hovered).Select(g => g.Box).ToList());
-        groupFillHover.Set(groups.Where(g => g.Hovered).Select(g => g.Box).ToList());
-        groupEdge.Set(edges);
-        groupEdgeHover.Set(hoverEdges);
         groupLabels.RemoveAllVisuals();
         if (groups.Count > 0 && (trashSurface == null || trashScale != scale)) DrawTrash(groups[0].Trash.H, scale);
         foreach (var g in groups)
@@ -500,7 +495,25 @@ sealed class SharedVisualPictures : IPictures
                 groupTitles[g.Id] = t = new Title(v);
                 device.CreateVisual(out var can);
                 groupTrash[g.Id] = can;
+                groupBoxes[g.Id] = (new Strips(this, 0, 0, 0, 0, groupBoxLayer), new Strips(this, 0, 0, 0, 0, groupBoxLayer));
+                device.CreateVisual(out var circle);
+                groupSwatches[g.Id] = new Swatch(circle);
             }
+            // From a light tint to a dark shade, which shows on any wallpaper.
+            var (fill, edge) = groupBoxes[g.Id];
+            var fillTint = GroupColours.Fill(g.Colour, solidity, g.Hovered);
+            fill.SetColour(fillTint.R, fillTint.G, fillTint.B, fillTint.A);
+            fill.Set([g.Box]);
+            var edgeTint = GroupColours.Edge(g.Colour, solidity, g.Hovered);
+            edge.SetColour(edgeTint.R, edgeTint.G, edgeTint.B, edgeTint.A);
+            var edges = new List<RectD>(4);
+            Outline(edges, g.Box, thin);
+            edge.Set(edges);
+            var swatch = groupSwatches[g.Id];
+            if (swatch.Colour != g.Colour || swatch.Scale != scale || swatch.Size != (int)Math.Round(g.Swatch.H)) DrawSwatch(swatch, g.Colour, g.Swatch.H, scale);
+            swatch.Visual.SetOffsetX((float)Math.Round(g.Swatch.X));
+            swatch.Visual.SetOffsetY((float)Math.Round(g.Swatch.Y));
+            groupLabels.AddVisual(swatch.Visual, false, null);
             if (t.Text != g.Name || t.Scale != scale) Draw(t, g.Name, scale);
             t.Visual.SetOffsetX((float)Math.Round(g.Label.X));
             t.Visual.SetOffsetY((float)Math.Round(g.Label.Y));
@@ -519,6 +532,11 @@ sealed class SharedVisualPictures : IPictures
             Dispose(gone!);
             groupTrash.Remove(id, out var can);
             can!.Dispose();
+            groupBoxes.Remove(id, out var box);
+            box.fill.Dispose();
+            box.edge.Dispose();
+            groupSwatches.Remove(id, out var circle);
+            circle!.Dispose();
         }
         buttonLayer.RemoveAllVisuals();
         if (newGroupButton is RectD b)
@@ -625,6 +643,126 @@ sealed class SharedVisualPictures : IPictures
         treeVisual.SetOffsetY((float)Math.Round(d.Panel.Y));
         treeDrawn = d;
         return true;
+    }
+
+    /// The circle by a group's label, filled with its colour, with the delete button's dark for a
+    /// rim so that it shows on any wallpaper.
+    void DrawSwatch(Swatch swatch, GroupColour colour, double height, double scale)
+    {
+        int size = (int)Math.Round(height);
+        if (swatch.Surface == null || swatch.Size != size)
+        {
+            swatch.Surface?.Dispose();
+            device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var made);
+            swatch.Surface = made;
+            swatch.Size = size;
+            swatch.Visual.SetContent(made);
+        }
+        float middle = size / 2f, rim = (float)(1.5 * scale);
+        using (var dxgi = swatch.Surface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
+        using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                   new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                   BitmapOptions.Target | BitmapOptions.CannotDraw)))
+        using (var dark = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
+        using (var paint = d2d.CreateSolidColorBrush(new Color4(colour.R / 255f, colour.G / 255f, colour.B / 255f, 1f)))
+        {
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            d2d.FillEllipse(new Ellipse(new Vector2(middle, middle), middle, middle), dark);
+            d2d.FillEllipse(new Ellipse(new Vector2(middle, middle), middle - rim, middle - rim), paint);
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+        }
+        swatch.Surface.EndDraw();
+        swatch.Colour = colour;
+        swatch.Scale = scale;
+    }
+
+    /// The colour wheel, which is scaled from its full size as it grows, and once it's grown the
+    /// ring that marks the group's colour on it.
+    public void SetColourWheel(ColourWheelDrawing? wheel, double scale)
+    {
+        wheelLayer.RemoveAllVisuals();
+        if (wheel is not ColourWheelDrawing d) return;
+        int size = (int)Math.Round(d.Rect.W);
+        if (wheelSurface == null || wheelSize != size) DrawWheel(size, scale);
+        double grown = d.Shown.W / d.Rect.W;
+        wheelVisual.SetTransform(new Matrix3x2((float)grown, 0, 0, (float)grown, (float)d.Shown.X, (float)d.Shown.Y));
+        wheelLayer.AddVisual(wheelVisual, false, null);
+        if (d.Shown != d.Rect) return;
+        int ring = (int)Math.Round(14 * scale);
+        if (markerSurface == null || markerSize != ring) DrawWheelMarker(ring, scale);
+        wheelMarker.SetOffsetX((float)Math.Round(d.Marker.X - ring / 2.0));
+        wheelMarker.SetOffsetY((float)Math.Round(d.Marker.Y - ring / 2.0));
+        wheelLayer.AddVisual(wheelMarker, false, null);
+    }
+
+    void DrawWheel(int size, double scale)
+    {
+        wheelSurface?.Dispose();
+        device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
+        wheelSurface = surface;
+        wheelSize = size;
+        wheelVisual.SetContent(surface);
+        var pixels = GroupColours.WheelPixels(size);
+        float middle = size / 2f, rim = (float)(1.5 * scale);
+        var pinned = System.Runtime.InteropServices.GCHandle.Alloc(pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            using var dxgi = surface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset);
+            using var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                BitmapOptions.Target | BitmapOptions.CannotDraw));
+            using var image = d2d.CreateBitmap(new Vortice.Mathematics.SizeI(size, size), pinned.AddrOfPinnedObject(), (uint)(size * 4),
+                new BitmapProperties(new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied)));
+            using var dark = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f));
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            d2d.DrawBitmap(image, new Vortice.RawRectF(0, 0, size, size), 1, Vortice.Direct2D1.BitmapInterpolationMode.Linear, null);
+            d2d.DrawEllipse(new Ellipse(new Vector2(middle, middle), middle - rim / 2, middle - rim / 2), dark, rim);
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+            surface.EndDraw();
+        }
+        finally { pinned.Free(); }
+    }
+
+    /// A white ring with a dark edge, which shows on every colour of the wheel.
+    void DrawWheelMarker(int size, double scale)
+    {
+        markerSurface?.Dispose();
+        device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
+        markerSurface = surface;
+        markerSize = size;
+        wheelMarker.SetContent(surface);
+        float middle = size / 2f, line = (float)(1.5 * scale);
+        using (var dxgi = surface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
+        using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                   new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                   BitmapOptions.Target | BitmapOptions.CannotDraw)))
+        using (var dark = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
+        using (var white = d2d.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f)))
+        {
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            d2d.DrawEllipse(new Ellipse(new Vector2(middle, middle), middle - line, middle - line), dark, line * 2);
+            d2d.DrawEllipse(new Ellipse(new Vector2(middle, middle), middle - line, middle - line), white, line);
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+        }
+        surface.EndDraw();
     }
 
     /// The delete button: a dark circle with a white garbage can (a glyph every Windows has).
@@ -980,9 +1118,26 @@ sealed class SharedVisualPictures : IPictures
 
     /// Solid-colour rectangles over the pictures (the ring, the guides): visuals sharing one 1x1
     /// surface, each stretched to its rectangle by its transform.
+    /// The circle with a group's colour.
+    sealed class Swatch(IDCompositionVisual2 visual)
+    {
+        public readonly IDCompositionVisual2 Visual = visual;
+        public IDCompositionSurface? Surface;
+        public GroupColour Colour;
+        public double Scale;
+        public int Size;
+
+        public void Dispose()
+        {
+            Visual.Dispose();
+            Surface?.Dispose();
+        }
+    }
+
     sealed class Strips
     {
         readonly SharedVisualPictures owner;
+        readonly IDCompositionVisual2 parent;
         readonly IDCompositionVisual2 container;
         readonly IDCompositionSurface colour;
         public IDCompositionSurface Colour => colour;
@@ -990,11 +1145,13 @@ sealed class SharedVisualPictures : IPictures
 
         (float r, float g, float b, float a) painted;
 
-        public Strips(SharedVisualPictures owner, float r, float g, float b, float a = 1f)
+        /// `parent`: where they go in the visual tree. Otherwise on top of what's there so far.
+        public Strips(SharedVisualPictures owner, float r, float g, float b, float a = 1f, IDCompositionVisual2? parent = null)
         {
             this.owner = owner;
+            this.parent = parent ?? owner.root;
             owner.device.CreateVisual(out container);
-            owner.root.AddVisual(container, false, null);
+            this.parent.AddVisual(container, false, null);
             owner.device.CreateSurface(1, 1, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out colour);
             Paint(r, g, b, a);
         }
@@ -1036,6 +1193,7 @@ sealed class SharedVisualPictures : IPictures
 
         public void Dispose()
         {
+            if (parent != owner.root) parent.RemoveVisual(container);
             container.RemoveAllVisuals();
             foreach (var v in pool) v.Dispose();
             container.Dispose();
@@ -1054,10 +1212,19 @@ sealed class SharedVisualPictures : IPictures
         trashSurface?.Dispose();
         treeSurface?.Dispose();
         treeVisual.Dispose();
-        groupFill.Dispose();
-        groupFillHover.Dispose();
-        groupEdge.Dispose();
-        groupEdgeHover.Dispose();
+        foreach (var (fill, edge) in groupBoxes.Values)
+        {
+            fill.Dispose();
+            edge.Dispose();
+        }
+        foreach (var swatch in groupSwatches.Values) swatch.Dispose();
+        wheelLayer.RemoveAllVisuals();
+        wheelMarker.Dispose();
+        wheelVisual.Dispose();
+        markerSurface?.Dispose();
+        wheelSurface?.Dispose();
+        wheelLayer.Dispose();
+        groupBoxLayer.Dispose();
         groupLabels.Dispose();
         buttonLayer.Dispose();
         accent.Dispose();

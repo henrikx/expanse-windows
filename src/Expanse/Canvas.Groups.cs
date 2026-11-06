@@ -12,6 +12,7 @@ sealed class CanvasGroup(long id, string name, RectD box)
     public RectD Box = box;
     /// Closed in the groups panel.
     public bool Collapsed;
+    public GroupColour Colour = GroupColours.Blue;
 }
 
 /// Groups zoomed out: making them, the mouse on them, and bringing them back to Groups' rules when
@@ -122,9 +123,9 @@ sealed partial class Canvas
 
     // MARK: Hit-testing
 
-    enum GroupPart { Label, Trash, Border, Body }
+    enum GroupPart { Colour, Label, Trash, Border, Body }
 
-    (RectD label, RectD trash) LabelRects(CanvasGroup g, double k) =>
+    (RectD swatch, RectD label, RectD trash) LabelRects(CanvasGroup g, double k) =>
         Groups.LabelRects(camera.ToView(g.Box), TextWidth(g.Name, k), k);
 
     /// What's under `p` of the groups, windows aside. Top group first: boxes don't overlap, but a
@@ -134,7 +135,8 @@ sealed partial class Canvas
         double k = UiScale;
         foreach (var g in groups)
         {
-            var (label, trash) = LabelRects(g, k);
+            var (swatch, label, trash) = LabelRects(g, k);
+            if (swatch.Contains(p)) return (g, GroupPart.Colour, ResizeEdges.None);
             if (trash.Contains(p)) return (g, GroupPart.Trash, ResizeEdges.None);
             if (label.Contains(p)) return (g, GroupPart.Label, ResizeEdges.None);
         }
@@ -224,6 +226,8 @@ sealed partial class Canvas
     nint GroupCursorAt(Vec p)
     {
         if (drag != null) return 0;
+        if (colourWheelGroup is CanvasGroup picking)
+            return GroupColours.OnWheel(ColourWheelRect(picking, UiScale), p) ? LoadCursor(0, IDC_CROSS) : 0;
         if (NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p)) return LoadCursor(0, IDC_HAND);
         if (TreePanel.Contains(p)) return treeHover >= 0 ? LoadCursor(0, IDC_HAND) : 0;
         if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p)) return 0;
@@ -233,6 +237,7 @@ sealed partial class Canvas
         return part switch
         {
             GroupPart.Trash => LoadCursor(0, IDC_HAND),
+            GroupPart.Colour when pictures.DrawsDecorations => LoadCursor(0, IDC_HAND),
             GroupPart.Border => LoadCursor(0, ResizeCursor(edges)),
             _ => 0,
         };
@@ -263,6 +268,13 @@ sealed partial class Canvas
     /// The window a right press landed on, if nothing sits over it there.
     void PressRight(Vec p)
     {
+        if (colourWheelGroup != null)
+        {
+            CancelColourWheel();
+            rightPressed = null;
+            Redraw();
+            return;
+        }
         bool covered = NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p) || TreePanel.Contains(p)
             || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p);
         rightPressed = CanPressRight && !covered ? WindowAt(p) : null;
@@ -301,7 +313,7 @@ sealed partial class Canvas
             Focus(overlay.Hwnd);
             return;
         }
-        var group = new CanvasGroup(nextGroupId++, NextGroupName(), made.Box);
+        var group = new CanvasGroup(nextGroupId++, NextGroupName(), made.Box) { Colour = GroupColours.Pick(groups.Select(g => g.Colour).ToList(), Random.Shared) };
         groups.Add(group);
         ApplyGroupFrames(frames, made.Apps);
         ClearSelection();
@@ -324,6 +336,10 @@ sealed partial class Canvas
         if (!together) ClearSelection();
         switch (part)
         {
+            // Drawn under the window pictures, the plain kind couldn't show the wheel.
+            case GroupPart.Colour:
+                if (pictures.DrawsDecorations) OpenColourWheel(g);
+                return false;
             case GroupPart.Trash:
                 DeleteGroup(g);
                 return false;
@@ -495,7 +511,7 @@ sealed partial class Canvas
     void StartRename(CanvasGroup g)
     {
         double k = UiScale;
-        var (label, _) = LabelRects(g, k);
+        var (_, label, _) = LabelRects(g, k);
         int x = (int)Math.Round(label.X) + monitor.Left, y = (int)Math.Round(label.Y) + monitor.Top;
         int w = (int)Math.Round(Math.Max(label.W, 180 * k)), h = (int)Math.Round(Math.Max(label.H, 24 * k));
         renameBox.Show(overlay.Hwnd, x, y, w, h, g.Name, k, (name, byKey) =>
@@ -520,9 +536,9 @@ sealed partial class Canvas
         foreach (var g in groups)
         {
             var box = camera.ToView(g.Box);
-            var (label, trash) = LabelRects(g, k);
-            if (!box.Intersects(View) && !label.Intersects(View)) continue;
-            drawings.Add(new GroupDrawing(g.Id, box, g.Name, label, trash, g == hoveredGroup || drag?.Group == g || selectedGroups.Contains(g)));
+            var (swatch, label, trash) = LabelRects(g, k);
+            if (!box.Intersects(View) && !label.Intersects(View) && !swatch.Intersects(View)) continue;
+            drawings.Add(new GroupDrawing(g.Id, box, g.Name, swatch, label, trash, g == hoveredGroup || drag?.Group == g || selectedGroups.Contains(g), g.Colour));
         }
         return drawings;
     }
@@ -532,7 +548,7 @@ sealed partial class Canvas
     List<SavedGroup> SavedGroups()
     {
         static SavedGroup Saved(CanvasGroup g, Guid? desktop) =>
-            new() { Name = g.Name, Desktop = desktop, Collapsed = g.Collapsed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H };
+            new() { Name = g.Name, Desktop = desktop, Collapsed = g.Collapsed, Colour = g.Colour.Packed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H };
         return groups.Select(g => Saved(g, groupsAway.Here)).Concat(groupsAway.Away.Select(a => Saved(a.Item, a.Desktop))).ToList();
     }
 
@@ -548,7 +564,11 @@ sealed partial class Canvas
         selectedGroups.Clear();
         foreach (var s in list)
         {
-            var g = new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)) { Collapsed = s.Collapsed };
+            var g = new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H))
+            {
+                Collapsed = s.Collapsed,
+                Colour = s.Colour is int colour ? GroupColour.FromPacked(colour) : GroupColours.Blue,
+            };
             if (current != null && s.Desktop is Guid d && d != current) groupsAway.Put(d, g);
             else groups.Add(g);
         }

@@ -97,7 +97,7 @@ sealed partial class Canvas
     /// their new size is the size you chose.
     readonly HashSet<nint> userSized = new();
 
-    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize, WindowResize }
+    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize, WindowResize, ColourPick }
     readonly Minimap minimap = new();
     readonly DesktopsPanel desktopsPanel = new();
     int hoveredDesktop = -1;
@@ -175,7 +175,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null || GroupSolidityMoving;
+    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -1392,6 +1392,7 @@ sealed partial class Canvas
     {
         renameBox.Finish(save: true, byKey: false);
         searchBox.Close();
+        if (PressColourWheel(p)) return;
         if (PressNewGroup(p)) return;
         if (TreePanel.Contains(p)) { PressTree(p); return; }
         if (desktopsPanel.Panel.Contains(p))
@@ -1486,6 +1487,9 @@ sealed partial class Canvas
             case DragKind.WindowResize:
                 DragWindowEdge(d, p, snap);
                 return;
+            case DragKind.ColourPick:
+                DragColour(p);
+                return;
             case DragKind.Pan:
                 if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return; // still a click
                 d.Moved = true;
@@ -1559,6 +1563,9 @@ sealed partial class Canvas
                 break;
             case DragKind.WindowResize:
                 EndWindowEdgeDrag(d, click);
+                break;
+            case DragKind.ColourPick:
+                EndColourPick(click);
                 break;
             case DragKind.Windows when click && d.Clicked == null:
                 // On a selected group, not on one of its apps.
@@ -2629,7 +2636,7 @@ sealed partial class Canvas
         var a = animation;
         if (a == null)
         {
-            if (fading) Redraw();
+            if (fading || ColourWheelGrowing) Redraw();
             return;
         }
         long now = Stopwatch.GetTimestamp();
@@ -2910,6 +2917,7 @@ sealed partial class Canvas
                 }
                 switch ((int)wParam)
                 {
+                    case VK_ESCAPE when colourWheelGroup != null: CancelColourWheel(); Redraw(); break;
                     case VK_ESCAPE when selected.Count > 0 || selectedGroups.Count > 0: ClearSelection(); Redraw(); break;
                     case VK_ESCAPE: Exit(null); break;
                     case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1], keepView: true); break;
@@ -3037,7 +3045,10 @@ sealed partial class Canvas
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         pictures.SetMarks(show ? CurrentMarks(k) : Marks.None, k);
+        // First: closing the wheel puts the group's colour back.
+        var colourWheel = ColourWheelNow(k);
         pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k, groupSolidity);
+        pictures.SetColourWheel(show ? colourWheel : null, k);
         var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
         pictures.SetMinimap(map, k);
         if (show) desktopsPanel.Refresh();
@@ -3129,11 +3140,16 @@ sealed partial class Canvas
         {
             int edge = Math.Max(1, (int)Math.Round(((g.Hovered ? 2 : 1) + (GroupsTakeClicks ? 1 : 0)) * k));
             int bx = (int)Math.Round(g.Box.X), by = (int)Math.Round(g.Box.Y), bw = (int)Math.Round(g.Box.Right), bh = (int)Math.Round(g.Box.Bottom);
+            nint groupColour = Gdi32.CreateSolidBrush(Gdi32.RGB(g.Colour.R, g.Colour.G, g.Colour.B));
             foreach (var s in new[] { new RECT(bx, by, bw, by + edge), new RECT(bx, bh - edge, bw, bh), new RECT(bx, by, bx + edge, bh), new RECT(bw - edge, by, bw, bh) })
             {
                 var strip = s;
-                FillRect(hdc, ref strip, groupBlue);
+                FillRect(hdc, ref strip, groupColour);
             }
+            nint pillBrush = Gdi32.SelectObject(hdc, groupColour);
+            Gdi32.RoundRect(hdc, (int)g.Swatch.X, (int)g.Swatch.Y, (int)g.Swatch.Right, (int)g.Swatch.Bottom, (int)g.Swatch.H, (int)g.Swatch.H);
+            Gdi32.SelectObject(hdc, pillBrush);
+            Gdi32.DeleteObject(groupColour);
             Pill(g.Label, g.Name);
             nint textFont = Gdi32.SelectObject(hdc, glyph);
             Pill(g.Trash, "\uE74D");

@@ -360,21 +360,23 @@ public static class Groups
         return result;
     }
 
-    /// The label above a box's top-left and the delete button to its right, in view space, at
-    /// display scale `k`: the same size at any zoom.
-    public static (RectD label, RectD trash) LabelRects(RectD viewBox, double textWidth, double k)
+    /// What goes above a box's top-left, in view space, at display scale `k`: the same size at any
+    /// zoom. From the left: the colour's circle, close to the label as it's part of what names the
+    /// group, then the label, then the delete button.
+    public static (RectD swatch, RectD label, RectD trash) LabelRects(RectD viewBox, double textWidth, double k)
     {
         double h = Math.Round(LabelHeight * k), y = viewBox.Y - h - Math.Round(LabelLift * k);
         double w = Math.Min(textWidth + 2 * LabelPad * k, LabelMaxWidth * k);
-        var label = new RectD(viewBox.X, y, w, h);
-        return (label, new RectD(label.Right + Math.Round(4 * k), y, h, h));
+        var swatch = new RectD(viewBox.X, y, h, h);
+        var label = new RectD(swatch.Right + Math.Round(2 * k), y, w, h);
+        return (swatch, label, new RectD(label.Right + Math.Round(4 * k), y, h, h));
     }
 
     /// The New Group button: where the label of the group it would make goes (`viewBox` is that
     /// group's box, in view space), but always on screen, to be clicked.
     public static RectD ButtonRect(RectD viewBox, double textWidth, RectD view, double k)
     {
-        var (label, _) = LabelRects(viewBox, textWidth, k);
+        var (_, label, _) = LabelRects(viewBox, textWidth, k);
         return label with { X = Math.Clamp(label.X, view.X, view.Right - label.W), Y = Math.Clamp(label.Y, view.Y, view.Bottom - label.H) };
     }
 
