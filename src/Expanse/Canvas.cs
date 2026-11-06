@@ -956,6 +956,9 @@ sealed partial class Canvas
         {
             case EVENT_SYSTEM_FOREGROUND:
                 focusChangedAt = Environment.TickCount64;
+                // Straight away, not once focus settles: a window just brought to the front is
+                // showing over the other monitor's until this runs.
+                KeepOtherMonitorsAbove();
                 SetTimer(overlay.Hwnd, FocusTimer, 120, 0);
                 break;
             case EVENT_OBJECT_NAMECHANGE:
