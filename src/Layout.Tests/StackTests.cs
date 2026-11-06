@@ -52,6 +52,21 @@ static class StackTests
         Is("raising keeps the outer window", idsBefore[was.Outer] == 10 && idsAfter[now.Outer] == 10);
         Is("raising changes the one in front", idsBefore[was.Front] == 20 && idsAfter[now.Front] == 30);
 
+        // Which show at 100%
+        WindowStack first = new(1, [0, 1], 1), second = new(3, [2, 3], 3);
+        WindowStack[] both = [first, second];
+        int[] noGroups = [-1, -1, -1, -1, -1], firstInGroup = [7, 7, -1, -1, 7], split = [7, -1, -1, -1, -1];
+        Is("in a stack, its tabs show", Stacks.ShowingAt100(both, 0, noGroups, -1).SequenceEqual([first]));
+        Is("the other stack's don't", !Stacks.ShowingAt100(both, 3, noGroups, -1).Contains(first));
+        Is("in no stack and no group, none show", Stacks.ShowingAt100(both, 4, noGroups, -1).Count == 0);
+        Is("nothing focused on the canvas, none show", Stacks.ShowingAt100(both, -1, noGroups, -1).Count == 0);
+        Is("another window of the stack's group shows them", Stacks.ShowingAt100(both, 4, firstInGroup, 7).SequenceEqual([first]));
+        Is("a window of another group doesn't", Stacks.ShowingAt100(both, 4, firstInGroup, 8).Count == 0);
+        Is("a stack partly in the group counts", Stacks.ShowingAt100(both, 4, split, 7).SequenceEqual([first]));
+        Is("a maximised window of the group, not among the frames", Stacks.ShowingAt100(both, -1, firstInGroup, 7).SequenceEqual([first]));
+        Is("two stacks in one group both show", Stacks.ShowingAt100(both, 4, [7, 7, 7, 7, 7], 7).Count == 2);
+        Is("ungrouped windows aren't a group", Stacks.ShowingAt100(both, 4, noGroups, -1).Count == 0);
+
         // The tabs
         var view = new RectD(0, 0, 2000, 1000);
         var tabs = Stacks.TabRects(new(100, 100, 800, 600), [60, 40], view, 1);
@@ -70,6 +85,8 @@ static class StackTests
         Is("on screen below the view", view.Contains(Stacks.TabRects(new(100, 900, 800, 600), [60], view, 1)[0]));
         Is("on screen to the left", view.Contains(Stacks.TabRects(new(-500, 100, 800, 600), [60], view, 1)[0]));
         Is("on screen to the right", view.Contains(Stacks.TabRects(new(1990, 100, 800, 600), [60], view, 1)[0]));
+        var work = new RectD(0, 0, 2000, 950);
+        Is("no room below goes over the window's bottom edge", Stacks.TabRects(new(100, 100, 800, 850), [60], work, 1)[0].Bottom == 950);
         Is("in a row", Stacks.TabRects(big, [50, 50, 50], view, 1).Select(t => t.Y).Distinct().Count() == 1);
         foreach (double scale in new[] { 1, 1.25, 1.5, 1.75, 2 })
         {

@@ -40,6 +40,12 @@ public static class Stacks
         return stacks;
     }
 
+    /// The stacks whose tabs show at 100%: the one you're in (`focused`, an index, or -1), and any in
+    /// the same canvas group as it. `groupOf`: each window's group (-1: none). `focusedGroup`: the
+    /// focused window's, which may not be among the frames (a maximised one).
+    public static List<WindowStack> ShowingAt100(IReadOnlyList<WindowStack> stacks, int focused, IReadOnlyList<int> groupOf, int focusedGroup) =>
+        stacks.Where(s => s.Members.Contains(focused) || (focusedGroup >= 0 && s.Members.Any(m => groupOf[m] == focusedGroup))).ToList();
+
     /// Enough of `w` lies within `outer`.
     public static bool IsInside(RectD w, RectD outer)
     {

@@ -4,6 +4,8 @@ namespace Expanse;
 
 /// Windows stacked inside each other, zoomed out: a row of tabs below them to switch
 /// between them (see Stacks). They stack with the window in front, so what's in front of that covers them.
+/// At 100%, where there's no overlay, they're small windows of their own (StackBars), while you're in
+/// the stack or in another window of its canvas group.
 sealed partial class Canvas
 {
     readonly record struct StackTab(CanvasWindow Window, CanvasWindow OnTop, string Text, RectD Rect, IconImage? Icon);
@@ -18,18 +20,73 @@ sealed partial class Canvas
         var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList());
         foreach (var stack in stacks)
         {
-            var members = stack.Members.Select(i => open[i]).ToList();
-            var bounds = camera.ToView(members.Select(w => w.Frame).Aggregate((a, b) => a.Union(b)));
-            if (!bounds.Intersects(View)) continue;
-            var texts = members.Select(w => TabText(w, members)).ToList();
-            var icons = members.Select(w => appIcons.Get(w, (int)Math.Round(GroupTree.IconSize * k))).ToList();
-            // A little to spare: the tab's text is drawn by another API, which may measure it wider.
-            var rects = Stacks.TabRects(bounds,
-                texts.Select((t, i) => TextWidth(t, k) + Math.Ceiling(2 * k) + (icons[i] != null ? Stacks.TabIconRoom * k : 0)).ToList(), View, k);
-            for (int i = 0; i < members.Count; i++)
-                tabs.Add(new StackTab(members[i], open[stack.Front], texts[i], rects[i], icons[i]));
+            tabs.AddRange(TabsOf(stack, open, View, k));
         }
         return tabs;
+    }
+
+    /// The tabs of a stack among `open`, kept on `view`. None if it's out of that altogether.
+    List<StackTab> TabsOf(WindowStack stack, List<CanvasWindow> open, RectD view, double k)
+    {
+        var tabs = new List<StackTab>();
+        var members = stack.Members.Select(i => open[i]).ToList();
+        var bounds = camera.ToView(members.Select(w => w.Frame).Aggregate((a, b) => a.Union(b)));
+        if (!bounds.Intersects(view)) return tabs;
+        var texts = members.Select(w => TabText(w, members)).ToList();
+        var icons = members.Select(w => appIcons.Get(w, (int)Math.Round(GroupTree.IconSize * k))).ToList();
+        // A little to spare: the tab's text is drawn by another API, which may measure it wider.
+        var rects = Stacks.TabRects(bounds,
+            texts.Select((t, i) => TextWidth(t, k) + Math.Ceiling(2 * k) + (icons[i] != null ? Stacks.TabIconRoom * k : 0)).ToList(), view, k);
+        for (int i = 0; i < members.Count; i++)
+            tabs.Add(new StackTab(members[i], open[stack.Front], texts[i], rects[i], icons[i]));
+        return tabs;
+    }
+
+    // MARK: At 100%
+
+    StackBars? stackBars;
+
+    /// Brings the tabs at 100% up to date: on a change of focus, after a sync, and when you start or
+    /// stop dragging a window (they'd trail behind it, so they wait until you let go). The real order
+    /// of the windows counts here: the list only catches up at the next sync.
+    void UpdateStackBars()
+    {
+        if (paused || active || gliding || userMoving != 0 || !initialSyncDone || CanvasWindowOf(GetForegroundWindow()) is not CanvasWindow focused)
+        {
+            stackBars?.Hide();
+            return;
+        }
+        var rank = new Dictionary<nint, int>();
+        EnumWindows((h, _) => { rank[h] = rank.Count; return true; }, 0); // topmost first
+        var open = windows.Where(w => !w.Maximised).OrderByDescending(w => rank.GetValueOrDefault(w.Hwnd, int.MaxValue)).ToList();
+        int GroupIndex(CanvasWindow w) => groups.FindIndex(g => Groups.IsMember(g.Box, GroupFrame(w)));
+        var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList());
+        var showing = Stacks.ShowingAt100(stacks, open.IndexOf(focused), open.Select(GroupIndex).ToList(), GroupIndex(focused));
+        double k = UiScale;
+        var wanted = new List<(nint key, nint above, List<BarTab> tabs)>();
+        foreach (var stack in showing)
+        {
+            var tabs = TabsOf(stack, open, WorkView, k);
+            if (tabs.Count == 0) continue;
+            var onScreen = tabs.Select(t => new BarTab(t.Window.Hwnd, t.Text, t.Rect.Offset(new Vec(monitor.Left, monitor.Top)), t.Window == t.OnTop, t.Icon)).ToList();
+            wanted.Add((open[stack.Outer].Hwnd, tabs[0].OnTop.Hwnd, onScreen));
+        }
+        if (wanted.Count == 0) { stackBars?.Hide(); return; }
+        stackBars ??= new StackBars(TabClickedAt100);
+        stackBars.Show(wanted, k);
+    }
+
+    /// A click on a tab at 100%: you're going to that window, so it takes focus.
+    void TabClickedAt100(nint hwnd)
+    {
+        if (paused || active || windows.FirstOrDefault(x => x.Hwnd == hwnd) is not CanvasWindow w || !IsWindow(hwnd)) return;
+        nint popup = GetLastActivePopup(hwnd);
+        nint to = popup != 0 && IsWindowVisible(popup) && IsWindowEnabled(popup) ? popup : hwnd;
+        Log.Info($"tab at 100%: {w}, focus {Focus(to)}");
+        lastOwnFocus = (hwnd, System.Diagnostics.Stopwatch.GetTimestamp());
+        lastFocusedWindow = hwnd;
+        BringToFront(w);
+        UpdateStackBars();
     }
 
     /// The app's name, or the window's title where the stack has more of that app.

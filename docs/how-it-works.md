@@ -89,6 +89,11 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   tabs goes below them on the canvas, with each app's icon, in an order that stays put. They stack with the
   window in front, in its mark layer, so what's in front of that covers them, and a click on a tab raises the real window
   without moving the view. Maximised windows aren't part of this: they're meant to cover what's behind them.
+  At 100% there's no overlay to draw on, so each stack that shows has a small window of its own (`StackBars`),
+  which never takes focus: only while you're in the stack or another window of its canvas group, because
+  Windows can't keep one app's window above another's as the order changes. It's put directly above the stack's
+  front window whenever focus changes, and waits while you drag a window. With no room below the stack it goes
+  over the bottom edge.
 - **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes, and is
   only as long as its rows. Its
   rules are in `src/Layout/GroupTree.cs`. The search box is a popup, up only while you type.

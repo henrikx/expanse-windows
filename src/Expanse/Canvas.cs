@@ -970,6 +970,7 @@ sealed partial class Canvas
                 // Straight away, not once focus settles: a window just brought to the front is
                 // showing over the other monitor's until this runs.
                 KeepOtherMonitorsAbove();
+                UpdateStackBars();
                 SetTimer(overlay.Hwnd, FocusTimer, 120, 0);
                 break;
             case EVENT_OBJECT_NAMECHANGE:
@@ -977,10 +978,12 @@ sealed partial class Canvas
                 {
                     named.Title = Title(hwnd);
                     if (active && !gliding) Redraw();
+                    else if (stackBars?.Showing == true) UpdateStackBars();
                 }
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
                 userMoving = hwnd;
+                UpdateStackBars();
                 moveStart = (hwnd, Dwm.FrameBounds(hwnd), Environment.TickCount64);
                 crossingWindow = monitor.ToRectD().Contains(Dwm.FrameBounds(hwnd).ToRectD().Center) ? hwnd : 0;
                 NoteUserDrag("start", hwnd);
@@ -1135,6 +1138,7 @@ sealed partial class Canvas
         userSized.Clear();
         if (suspendTracking && !active) Commit();
         ScheduleSave();
+        UpdateStackBars();
         // An arrival may have started a glide, whose pictures are already up.
         if (!wasActive || gliding || (added.Count == 0 && removed.Count == 0 && ownedArrived.Count == 0 && ownedLeft.Count == 0)) return;
         foreach (var w in removed)
@@ -1193,6 +1197,7 @@ sealed partial class Canvas
         nint hwnd = GetForegroundWindow();
         if (paused || active || animation != null || hwnd == 0) return;
         KeepOtherMonitorsAbove();
+        UpdateStackBars();
         // Our own hand-back just focused it: the window you're in now.
         if (lastOwnFocus.hwnd == hwnd && Stopwatch.GetElapsedTime(lastOwnFocus.at).TotalSeconds < 1)
         {
@@ -1920,6 +1925,7 @@ sealed partial class Canvas
         Save(cleanExit: true);
         Originals.Restore(windows);
         paused = true;
+        stackBars?.Hide();
         tray.SetTip("Expanse (paused)");
         Log.Info("paused");
     }
@@ -2020,6 +2026,7 @@ sealed partial class Canvas
         ReadScreen();
         if (sync) Sync();
         previousForeground = GetForegroundWindow();
+        stackBars?.Hide();
         active = true;
         gliding = !zoomOut;
         hovered = null;
@@ -2201,6 +2208,7 @@ sealed partial class Canvas
         ClearSelection();
         spaceHeld = false;
         KeepOtherMonitorsAbove();
+        UpdateStackBars();
         if (pendingRestoreAll) { pendingRestoreAll = false; RestoreAll(); }
         Log.Info($"handed back: moved {moved} windows, waited {waited} frames, {Ms(t0):0}ms");
         if (pendingSync) { pendingSync = false; SyncLive(); }
