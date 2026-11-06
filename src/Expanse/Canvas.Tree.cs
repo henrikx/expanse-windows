@@ -77,7 +77,7 @@ sealed partial class Canvas
     {
         if (row.Kind == TreeRowKind.Others) { ToggleRow(row); return; }
         searchBox.Close();
-        selected.Clear();
+        ClearSelection();
         if (GroupOf(row) is CanvasGroup g) FocusGroup(g);
         else if (WindowOf(row) is CanvasWindow w) Exit(w, keepView: true);
     }

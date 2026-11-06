@@ -44,6 +44,8 @@ sealed partial class Canvas
     Drag? drag;                // a press on the zoomed-out canvas, until the button comes up
     /// Windows picked zoomed out (Shift-click, a marquee, Ctrl+A): they drag and close together.
     readonly HashSet<CanvasWindow> selected = new();
+    /// Groups a marquee covered: they drag with the selection, taking their apps along.
+    readonly HashSet<CanvasGroup> selectedGroups = new();
     RectD? marquee;            // the box being dragged out, view space
     bool spaceHeld;            // Space down, zoomed out: dragging pans
     bool sessionEnding;        // Windows is shutting down or signing out: see WM_QUERYENDSESSION
@@ -108,8 +110,12 @@ sealed partial class Canvas
         public Vec Last = startPoint;
         public CanvasWindow? Clicked;
         public List<(CanvasWindow w, RectD start)> Moving = new();
+        /// Selected groups going along with the windows, and how far they've gone.
+        public List<(CanvasGroup g, RectD start)> MovingGroups = new();
+        public Vec GroupsMoved;
         /// A marquee keeps what was selected before it (with Shift).
         public HashSet<CanvasWindow> Base = new();
+        public HashSet<CanvasGroup> BaseGroups = new();
         public bool Moved;
         /// A group's box or border being dragged (see DragGroup).
         public CanvasGroup? Group;
@@ -1363,8 +1369,9 @@ sealed partial class Canvas
 
     /// With Space held, dragging pans. On a window, its × closes it (or the selection it's in),
     /// Shift toggles it in the selection, and otherwise it drags (with the selection, if it's in
-    /// one). On empty canvas a press clears the selection; with Ctrl a marquee selects what it
-    /// touches, and with Shift it adds to the selection. The middle button pans: see Handle.
+    /// one). On empty canvas a press clears the selection; with Ctrl a marquee selects the windows
+    /// it touches and the groups it covers, and with Shift it adds to the selection. The middle
+    /// button pans: see Handle.
     void Press(Vec p, bool shift, bool ctrl)
     {
         renameBox.Finish(save: true, byKey: false);
@@ -1403,15 +1410,19 @@ sealed partial class Canvas
             }
             if (shift)
             {
-                if (!selected.Remove(w)) selected.Add(w);
+                // A group without one of its apps isn't selected any more, or a drag would take it along.
+                if (selected.Remove(w)) selectedGroups.RemoveWhere(g => Groups.IsMember(g.Box, GroupFrame(w)));
+                else selected.Add(w);
                 Redraw();
                 return;
             }
-            List<CanvasWindow> group = InGroup(w) ? windows.Where(selected.Contains).ToList() : [w];
-            if (group.Count == 1) selected.Clear();
+            bool together = InGroup(w);
+            if (!together) ClearSelection();
+            var pressed = together ? SelectionDrag(p) : new Drag(DragKind.Windows, p) { Moving = [(w, w.Frame)] };
+            pressed.Clicked = w;
             // A click that goes to the group leaves the stack alone: a drag raises them when it starts.
-            if (GroupTakingClick(w) == null) foreach (var g in group) BringToFront(g);
-            drag = new Drag(DragKind.Windows, p) { Clicked = w, Moving = group.Select(g => (g, g.Frame)).ToList() };
+            if (GroupTakingClick(w) == null) foreach (var (g, _) in pressed.Moving) BringToFront(g);
+            drag = pressed;
         }
         else if (!ctrl && !shift && GroupHitAt(p) is (CanvasGroup hitGroup, GroupPart part, ResizeEdges edges))
         {
@@ -1420,8 +1431,8 @@ sealed partial class Canvas
         else
         {
             // Empty canvas: a drag selects, with Shift adding to what's selected. A click just clears.
-            drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new() };
-            if (!shift) selected.Clear();
+            drag = new Drag(DragKind.Marquee, p) { Base = shift ? selected.ToHashSet() : new(), BaseGroups = shift ? selectedGroups.ToHashSet() : new() };
+            if (!shift) ClearSelection();
         }
         SetCapture(overlay.Hwnd);
         Redraw();
@@ -1454,9 +1465,11 @@ sealed partial class Canvas
                 var box = new RectD(Math.Min(d.StartPoint.X, p.X), Math.Min(d.StartPoint.Y, p.Y),
                     Math.Abs(p.X - d.StartPoint.X), Math.Abs(p.Y - d.StartPoint.Y));
                 marquee = box;
-                selected.Clear();
+                ClearSelection();
                 selected.UnionWith(d.Base);
                 selected.UnionWith(windows.Where(w => camera.ToView(w.Frame).Intersects(box)));
+                selectedGroups.UnionWith(d.BaseGroups);
+                selectedGroups.UnionWith(groups.Where(g => Groups.CoveredBy(box, camera.ToView(g.Box))));
                 Redraw();
                 return;
             }
@@ -1464,15 +1477,24 @@ sealed partial class Canvas
         if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return;
         if (!d.Moved) foreach (var raised in d.Moving) BringToFront(raised.w);
         d.Moved = true;
-        var bounds = d.Moving.Skip(1).Aggregate(d.Moving[0].start, (b, m) => b.Union(m.start));
+        var bounds = d.Moving.Select(m => m.start).Concat(d.MovingGroups.Select(m => m.start)).Aggregate((a, b) => a.Union(b));
         var proposed = bounds.Offset(new Vec((p.X - d.StartPoint.X) / camera.Scale, (p.Y - d.StartPoint.Y) / camera.Scale));
         var moving = d.Moving.Select(m => m.w).ToHashSet();
+        var otherBoxes = d.MovingGroups.Count == 0 ? [] : groups.Where(g => !d.MovingGroups.Any(m => m.g == g)).Select(g => g.Box).ToList();
         var (snapped, lines) = snap
-            ? Layout.Snap(proposed, windows.Where(w => !moving.Contains(w)).Select(w => w.Frame).ToList(), camera.Scale, camera.Center(ViewSize))
+            ? Layout.Snap(proposed, windows.Where(w => !moving.Contains(w)).Select(w => w.Frame).Concat(otherBoxes).ToList(), camera.Scale, camera.Center(ViewSize))
             : (proposed, new List<Layout.GuideLine>());
+        if (d.MovingGroups.Count > 0)
+        {
+            d.GroupsMoved = Groups.MoveTogether(d.MovingGroups.Select(m => m.start).ToList(), d.GroupsMoved, snapped.Origin - bounds.Origin, otherBoxes);
+            snapped = bounds.Offset(d.GroupsMoved);
+            foreach (var (g, start) in d.MovingGroups) g.Box = start.Offset(d.GroupsMoved);
+        }
         foreach (var (w, start) in d.Moving)
         {
+            var from = w.Frame.Origin;
             w.Frame = new RectD(snapped.X + (start.X - bounds.X), snapped.Y + (start.Y - bounds.Y), start.W, start.H);
+            if (d.MovingGroups.Count > 0) foreach (var o in w.Owned) o.Frame = o.Frame.Offset(w.Frame.Origin - from);
             PictureMoved(w);
         }
         ShowGuides(lines);
@@ -1491,7 +1513,8 @@ sealed partial class Canvas
         switch (d.What)
         {
             case DragKind.Windows when d.Moved:
-                Log.Info(d.Moving.Count == 1 ? $"dragged {d.Clicked} to {d.Clicked!.Frame}"
+                if (d.MovingGroups.Count > 0) Log.Info($"dragged {d.MovingGroups.Count} groups and {d.Moving.Count} windows by {d.GroupsMoved.X:0},{d.GroupsMoved.Y:0}");
+                else Log.Info(d.Moving.Count == 1 ? $"dragged {d.Clicked} to {d.Clicked!.Frame}"
                     : $"dragged {d.Moving.Count} windows by {d.Clicked!.Frame.X - d.Moving.First(m => m.w == d.Clicked).start.X:0},{d.Clicked.Frame.Y - d.Moving.First(m => m.w == d.Clicked).start.Y:0}");
                 foreach (var (w, start) in d.Moving) NoteUserMove(w, start.Origin);
                 SettleGroups(DragStarts(d));
@@ -1501,21 +1524,26 @@ sealed partial class Canvas
             case DragKind.GroupMove or DragKind.GroupResize:
                 EndGroupDrag(d, click);
                 break;
+            case DragKind.Windows when click && d.Clicked == null:
+                // On a selected group, not on one of its apps.
+                ClearSelection();
+                if (d.FocusOnClick) FocusGroup(d.Group!);
+                break;
             case DragKind.Windows when click:
                 Log.Info($"click on {d.Clicked}");
-                selected.Clear();
+                ClearSelection();
                 if (GroupTakingClick(d.Clicked!) is CanvasGroup clickedGroup) FocusGroup(clickedGroup, d.Clicked);
                 else Exit(d.Clicked, keepView: true);
                 break;
             case DragKind.Marquee when d.Moved:
-                Log.Info($"marquee: {selected.Count} selected");
+                Log.Info($"marquee: {selected.Count} windows and {selectedGroups.Count} groups selected");
                 break;
         }
         Redraw();
     }
 
-    /// Part of a selection of more than one window (which × and Ctrl+W close together).
-    bool InGroup(CanvasWindow? w) => w != null && selected.Count > 1 && selected.Contains(w);
+    /// Part of a selection of more than one window, or with a group (× and Ctrl+W close the windows together).
+    bool InGroup(CanvasWindow? w) => w != null && (selected.Count > 1 || selectedGroups.Count > 0) && selected.Contains(w);
 
     // MARK: Camera, by hand
 
@@ -1839,7 +1867,7 @@ sealed partial class Canvas
     void Close(CanvasWindow w)
     {
         List<CanvasWindow> ws = InGroup(w) ? windows.Where(selected.Contains).ToList() : [w];
-        if (ws.Count > 1) selected.Clear();
+        if (ws.Count > 1) ClearSelection();
         Log.Info(ws.Count == 1 ? $"close {w}" : $"close {ws.Count} windows");
         foreach (var x in ws) PostMessage(x.Hwnd, WM_CLOSE, 0, 0);
         closing.Clear();
@@ -2159,7 +2187,7 @@ sealed partial class Canvas
         gliding = false;
         glideTarget = null;
         returnCamera = null;
-        selected.Clear();
+        ClearSelection();
         spaceHeld = false;
         KeepOtherMonitorsAbove();
         if (pendingRestoreAll) { pendingRestoreAll = false; RestoreAll(); }
@@ -2823,7 +2851,7 @@ sealed partial class Canvas
                 }
                 switch ((int)wParam)
                 {
-                    case VK_ESCAPE when selected.Count > 0: selected.Clear(); Redraw(); break;
+                    case VK_ESCAPE when selected.Count > 0 || selectedGroups.Count > 0: ClearSelection(); Redraw(); break;
                     case VK_ESCAPE: Exit(null); break;
                     case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1], keepView: true); break;
                     case VK_SPACE:
@@ -2968,7 +2996,8 @@ sealed partial class Canvas
         var rings = windows.Where(w => w == hovered || selected.Contains(w))
             .Select(w => (w.Hwnd, camera.ToView(w.Frame), selected.Contains(w))).ToList();
         var picked = windows.Where(selected.Contains).Select(w => camera.ToView(w.Frame)).ToList();
-        RectD? box = picked.Count > 1 ? picked.Skip(1).Aggregate(picked[0], (a, b) => a.Union(b)) : null;
+        var pickedGroups = groups.Where(selectedGroups.Contains).Select(g => camera.ToView(g.Box)).ToList();
+        RectD? box = picked.Count > 1 || pickedGroups.Count > 0 ? picked.Concat(pickedGroups).Aggregate((a, b) => a.Union(b)) : null;
         var closes = drag == null ? windows.Where(w => CloseShown(w, hovered, k)).Select(w => (w.Hwnd, camera.ToView(w.Frame))).ToList() : [];
         return new Marks(rings, box, marquee, closes);
     }

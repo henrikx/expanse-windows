@@ -111,7 +111,7 @@ start it with Windows.
 | Middle-button drag on empty desktop | Move around the canvas from 100% |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + middle-button drag | Move around the canvas from 100%, starting over any window |
 | Click or drag in the minimap | Move the view there |
-| Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, then drag any of them to move the group |
+| Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, and any group the box wholly covers, then drag any of them to move them all |
 | <kbd>Shift</kbd> + drag · <kbd>Ctrl</kbd> or <kbd>Shift</kbd> + drag inside a group's box | Add to the selection · select there instead of moving the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
 | Select windows, then click **New Group** | Put a named box round them |

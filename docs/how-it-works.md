@@ -80,7 +80,9 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   app whose centre is inside a box is in it. The rules are plain geometry in `src/Layout/Groups.cs`,
   tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows
   can use it later. Tidy Up and fitting to a screen treat each group as one block. At the Group Selection Zoom (50% to begin with) or
-  less a click on an app goes to its group (`GroupTakingClick`), and only a drag raises it. The rename box
+  less a click on an app goes to its group (`GroupTakingClick`), and only a drag raises it. A marquee
+  that covers a whole box selects the group too, and it then moves with the selection, its apps with
+  it, stopping short of groups that aren't selected (`Groups.MoveTogether`). The rename box
   is a popup owned by the overlay, because the visual tree covers the overlay's child windows.
 - **The groups panel** is drawn like the minimap, on a surface redrawn only when it changes, and is
   only as long as its rows. Its

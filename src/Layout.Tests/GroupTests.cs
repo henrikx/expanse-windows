@@ -190,5 +190,45 @@ static class GroupTests
         Is("button: on screen with the box's top out of view", view.Contains(Groups.ButtonRect(new(100, -500, 500, 900), 80, view, 1)));
         Is("button: on screen with the box's left out of view", view.Contains(Groups.ButtonRect(new(-500, 200, 900, 300), 80, view, 1)));
         Is("button: on screen with the box past the far corner", view.Contains(Groups.ButtonRect(new(5000, 5000, 500, 300), 80, view, 1)));
+
+        // --- A marquee over a group ---
+        var covered = new RectD(100, 100, 200, 200);
+        Is("marquee: round the whole box selects it", Groups.CoveredBy(new(50, 50, 400, 400), covered));
+        Is("marquee: exactly the box selects it", Groups.CoveredBy(covered, covered));
+        Is("marquee: one edge short doesn't", !Groups.CoveredBy(new(50, 50, 249, 400), covered));
+        Is("marquee: inside the box doesn't", !Groups.CoveredBy(new(150, 150, 50, 50), covered));
+        Is("marquee: elsewhere doesn't", !Groups.CoveredBy(new(500, 500, 400, 400), covered));
+
+        // --- Groups dragged together ---
+        void Moved(string name, Vec want, Vec got) => expect($"together: {name}", want == got, $"want {want}, got {got}");
+        RectD[] two = [new(0, 0, 100, 100), new(0, 300, 100, 100)];
+        RectD levelWithFirst = new(300, 0, 100, 100); // level with the first box only
+        Moved("free", new(50, 60), Groups.MoveTogether(two, new(0, 0), new(50, 60), []));
+        Moved("no other group in the way", new(50, 0), Groups.MoveTogether(two, new(0, 0), new(50, 0), [levelWithFirst]));
+        Vec zero = new(0, 0);
+        double touching = 300 - G - 100;
+        Moved("right up to the gap", new(touching, 0), Groups.MoveTogether(two, zero, new(touching, 0), [levelWithFirst]));
+        Moved("one step past the gap stays put", new(touching, 0), Groups.MoveTogether(two, new(touching, 0), new(touching + 1, 0), [levelWithFirst]));
+        Moved("slides along it", new(touching, -300), Groups.MoveTogether(two, new(touching, 0), new(touching + 1, -300), [levelWithFirst]));
+        Moved("a jump clear past it is allowed", new(1000, 0), Groups.MoveTogether(two, zero, new(1000, 0), [levelWithFirst]));
+        RectD lower = new(300, 300, 100, 100);
+        Moved("the second box is stopped too", new(touching, 0), Groups.MoveTogether(two, new(touching, 0), new(touching + 1, 0), [lower]));
+        RectD between = new(0, 150, 100, 100);
+        Moved("a group between them is no obstacle while neither meets it", new(5, 0), Groups.MoveTogether(two, zero, new(5, 0), [between]));
+        RectD[] oneBox = [new(0, 0, 100, 100)];
+        RectD[] corner = [new(110 + G, -1000, 100, 3000), new(-1000, 110 + G, 3000, 100)];
+        Moved("blocked on both axes stays where it is", new(10, 10), Groups.MoveTogether(oneBox, new(10, 10), new(20, 20), corner));
+
+        // Wherever the pointer goes, they stay the gap clear of every other group.
+        var random = new Random(1);
+        RectD[] obstacles = [new(400, 0, 100, 100), new(-400, 200, 100, 100), new(0, 800, 300, 100), new(600, 600, 100, 100)];
+        var moved = zero;
+        bool clear = true;
+        for (int i = 0; i < 2000; i++)
+        {
+            moved = Groups.MoveTogether(two, moved, moved + new Vec(random.Next(-80, 81), random.Next(-80, 81)), obstacles);
+            clear &= !two.Any(b => obstacles.Any(o => b.Offset(moved).Intersects(o.Inset(-G, -G))));
+        }
+        Is("together: 2000 random steps never come within the gap", clear);
     }
 }

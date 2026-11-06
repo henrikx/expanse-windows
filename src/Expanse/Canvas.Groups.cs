@@ -47,6 +47,7 @@ sealed partial class Canvas
         Log.Info($"groups: desktop {from} -> {current}, {groups.Count} here, {groupsAway.Away.Count()} on others");
         renameBox.Finish(save: true, byKey: false);
         hoveredGroup = null;
+        selectedGroups.Clear();
         treeScroll = 0;
         treeHighlight = -1;
         ScheduleSave();
@@ -195,7 +196,7 @@ sealed partial class Canvas
     /// group yet.
     RectD? NewGroupRect(double k)
     {
-        if (selected.Count == 0 || drag != null || selected.Any(InAnyGroup)) return null;
+        if (selected.Count == 0 || selectedGroups.Count > 0 || drag != null || selected.Any(InAnyGroup)) return null;
         var picked = windows.Where(selected.Contains).Select(GroupFrame).ToList();
         if (picked.Count == 0) return null;
         return Groups.ButtonRect(camera.ToView(Groups.Fit(picked)), TextWidth(NewGroupText, k), View, k);
@@ -274,7 +275,7 @@ sealed partial class Canvas
         Log.Info($"right click on {w}");
         renameBox.Finish(save: true, byKey: false);
         searchBox.Close();
-        selected.Clear();
+        ClearSelection();
         FocusGroup(g, w);
     }
 
@@ -301,7 +302,7 @@ sealed partial class Canvas
         var group = new CanvasGroup(nextGroupId++, NextGroupName(), made.Box);
         groups.Add(group);
         ApplyGroupFrames(frames, made.Apps);
-        selected.Clear();
+        ClearSelection();
         Log.Info($"new group \"{group.Name}\" at {group.Box}");
         ScheduleSave();
         Relayout();
@@ -316,18 +317,26 @@ sealed partial class Canvas
     /// A press with no window under it and no Ctrl or Shift. True if it started a drag.
     bool PressGroup(CanvasGroup g, GroupPart part, ResizeEdges edges, Vec p)
     {
-        selected.Clear();
+        // A selected group's body or label drags the whole selection, unless it's a rename.
+        bool together = selectedGroups.Contains(g) && part is GroupPart.Body or GroupPart.Label;
+        if (!together) ClearSelection();
         switch (part)
         {
             case GroupPart.Trash:
                 DeleteGroup(g);
                 return false;
             case GroupPart.Label when IsDoubleClick(g, p):
+                ClearSelection();
                 StartRename(g);
                 return false;
             case GroupPart.Border:
                 drag = new Drag(DragKind.GroupResize, p) { Group = g, StartBox = g.Box, Edges = edges, Required = RequiredBox(g) };
                 SetCursor(LoadCursor(0, ResizeCursor(edges)));
+                return true;
+            case GroupPart.Body or GroupPart.Label when together:
+                drag = SelectionDrag(p);
+                drag.Group = g;
+                drag.FocusOnClick = part == GroupPart.Body;
                 return true;
             default:
                 // A press on the label can drag the group, but only a click on its body goes to it.
@@ -433,6 +442,23 @@ sealed partial class Canvas
         Animate(target, 0.25, () => HandBack(focus));
     }
 
+    void ClearSelection()
+    {
+        selected.Clear();
+        selectedGroups.Clear();
+    }
+
+    /// A drag of everything selected: the windows, and the selected groups with all their apps.
+    Drag SelectionDrag(Vec p)
+    {
+        var moving = windows.Where(w => selected.Contains(w) || selectedGroups.Any(g => Groups.IsMember(g.Box, GroupFrame(w))));
+        return new Drag(DragKind.Windows, p)
+        {
+            Moving = moving.Select(w => (w, w.Frame)).ToList(),
+            MovingGroups = groups.Where(selectedGroups.Contains).Select(g => (g, g.Box)).ToList(),
+        };
+    }
+
     void DeleteGroup(CanvasGroup g)
     {
         bool yes = MessageBox(overlay.Hwnd, $"Delete the group \"{g.Name}\"? Its apps stay open, where they are.", "Delete Group",
@@ -440,6 +466,7 @@ sealed partial class Canvas
         Focus(overlay.Hwnd);
         if (!yes) return;
         groups.Remove(g);
+        selectedGroups.Remove(g);
         if (hoveredGroup == g) hoveredGroup = null;
         Log.Info($"deleted group \"{g.Name}\"");
         ScheduleSave();
@@ -476,7 +503,7 @@ sealed partial class Canvas
             var box = camera.ToView(g.Box);
             var (label, trash) = LabelRects(g, k);
             if (!box.Intersects(View) && !label.Intersects(View)) continue;
-            drawings.Add(new GroupDrawing(g.Id, box, g.Name, label, trash, g == hoveredGroup || drag?.Group == g));
+            drawings.Add(new GroupDrawing(g.Id, box, g.Name, label, trash, g == hoveredGroup || drag?.Group == g || selectedGroups.Contains(g)));
         }
         return drawings;
     }
@@ -499,6 +526,7 @@ sealed partial class Canvas
         groups.Clear();
         groupsAway.Reset(current);
         hoveredGroup = null;
+        selectedGroups.Clear();
         foreach (var s in list)
         {
             var g = new CanvasGroup(nextGroupId++, s.Name, new RectD(s.X, s.Y, s.W, s.H)) { Collapsed = s.Collapsed };

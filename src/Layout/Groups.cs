@@ -189,6 +189,22 @@ public static class Groups
         return Grow(current, Resizing.Resize(start, edges, delta, minimum, required), others);
     }
 
+    /// A marquee takes a group only when it covers the whole box.
+    public static bool CoveredBy(RectD marquee, RectD box) => marquee.Contains(box);
+
+    /// Groups dragged together: how far they go from `boxes`, as near to `wanted` as a step from
+    /// `at` (how far they've gone already) allows. A step that would bring one within `Gap` of
+    /// another group is dropped along whichever axis still works, so they slide along it, and
+    /// jumping clear past one is fine.
+    public static Vec MoveTogether(IReadOnlyList<RectD> boxes, Vec at, Vec wanted, IReadOnlyList<RectD> others)
+    {
+        bool Clear(Vec by) => !boxes.Any(b => others.Any(o => b.Offset(by).Intersects(Zone(o))));
+        Vec[] steps = [wanted, new(wanted.X, at.Y), new(at.X, wanted.Y)];
+        foreach (var step in steps)
+            if (Clear(step)) return step;
+        return at;
+    }
+
     /// The canvas point for the view's top-left at 100%, when you click a group: its apps centred
     /// in the work area (`work`, view space), then shifted just enough that `focus`, the one you
     /// used last, is wholly on screen, or from its top-left if it's bigger than the screen.
