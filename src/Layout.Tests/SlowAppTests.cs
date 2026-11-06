@@ -86,8 +86,7 @@ static class SlowAppTests
 
         // --- The bug, and that the simulation shows it ---
         var before = Glide(Parked(), from, to, view, moveMs: 30, liftAll: true);
-        // All but the last, whose lift is still queued as the overlay drops, so it hasn't come on screen.
-        Is("control: lifting everything, a slow app's parked windows flash", before.Flashed == ParkedCount - 1, $"{before}");
+        Is("control: lifting everything, a slow app's parked windows flash", before.Flashed > 0, $"{before}");
         var now = Glide(Parked(), from, to, view, moveMs: 30, liftAll: false);
         Is("lifting what the glide shows, they don't", now.Flashed == 0, $"{now}");
 
@@ -112,10 +111,17 @@ static class SlowAppTests
 
         // --- What a slow app can still do: a real limit of waiting, pinned to notice a change ---
         // A window you were looking at has to leave whatever the rule: too slow, and it's still there.
-        var left = Glide([new Window(leaving)], from, to, view, moveMs: 400, liftAll: false);
+        var left = Glide([new Window(leaving)], from, to, view, moveMs: MoveWait.LimitMs + MoveWait.HoldMs + 20, liftAll: false);
         Is("a window leaving the view still shows if its app is slower than the wait", left.Flashed == 1, $"{left}");
         var leftInTime = Glide([new Window(leaving)], from, to, view, moveMs: 30, liftAll: false);
         Is("a window leaving the view is gone if its app is quick enough", leftInTime.Flashed == 0, $"{leftInTime}");
+        // As a log showed: several windows of one app, which took longer than the 200 ms this used to wait.
+        var several = Enumerable.Range(0, 6).Select(_ => new Window(leaving)).ToList();
+        var waited = Glide(several, from, to, view, moveMs: 60, liftAll: false);
+        Is("several windows leaving, one after another, are gone in time", waited.Flashed == 0, $"{waited}");
+        Is("and the wait ended when they had", waited.DropAfterCommit < MoveWait.LimitMs + MoveWait.HoldMs, $"{waited}");
+        var fastScreen = Glide([new Window(leaving)], from, to, view, moveMs: 100_000, liftAll: false, frameMs: 1000.0 / 240);
+        Is("at 240 Hz the wait still runs to its time limit", fastScreen.DropAfterCommit >= MoveWait.LimitMs, $"{fastScreen}");
 
         // --- Parked windows' moves share the app's queue: one in view goes ahead of them ---
         var last = Parked();

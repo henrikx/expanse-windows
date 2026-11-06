@@ -6,9 +6,11 @@ namespace Expanse;
 public static class MoveWait
 {
     /// The longest the overlay waits for slow apps to move, so one that won't can't hold it up for long.
-    public const int LimitMs = 200;
+    /// Input and focus wait too, but only for as long as an app is slow: a window flashing is worse.
+    public const int LimitMs = 500;
     /// The wait's frames are capped as well as its time: a frame can return early (composition paused).
-    public const int FrameLimit = 60;
+    /// Enough that at 240 Hz the time limit still comes first.
+    public const int FrameLimit = 150;
     /// How long the overlay stays up after the windows have landed and focus has moved.
     public const int HoldMs = 80;
 
