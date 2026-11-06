@@ -95,12 +95,16 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
 /// A group in view coordinates: its box, its name's pill and the delete button beside it.
 readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Label, RectD Trash, bool Hovered);
 
+/// A window's tab in its stack, in view coordinates. `Front`: the one on top. `Layer`: that window,
+/// whose place in the stack the tabs take, so what's in front of it covers them.
+readonly record struct StackTabDrawing(nint Hwnd, nint Layer, string Text, RectD Rect, bool Front, IconImage? Icon);
+
 /// View coordinates. Rings and close buttons belong to a window (its handle), and stack with its
-/// picture. `Closes`: the pictures showing a close button (see Marks.CloseRect).
+/// picture. `Closes`: the pictures showing a close button (see Marks.CloseRect). `Tabs`: see StackTabDrawing.
 readonly record struct Marks(IReadOnlyList<(nint hwnd, RectD picture, bool selected)> Rings, RectD? SelectionBox, RectD? Marquee,
-    IReadOnlyList<(nint hwnd, RectD picture)> Closes)
+    IReadOnlyList<(nint hwnd, RectD picture)> Closes, IReadOnlyList<StackTabDrawing> Tabs)
 {
-    public static readonly Marks None = new([], null, null, []);
+    public static readonly Marks None = new([], null, null, [], []);
 
     /// The close button of a picture drawn at `r`: 26 px (at 100%), 10 px in from the top-right
     /// corner, as on the Mac.

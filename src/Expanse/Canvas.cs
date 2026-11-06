@@ -1405,6 +1405,11 @@ sealed partial class Canvas
             CentreOn(minimap.CanvasPoint(p));
         }
         else if (spaceHeld) drag = new Drag(DragKind.Pan, p);
+        else if (TabAt(p) is CanvasWindow tabbed)
+        {
+            RaiseStacked(tabbed);
+            return;
+        }
         else if (WindowAt(p) is CanvasWindow w)
         {
             double k = UiScale;
@@ -2954,7 +2959,7 @@ sealed partial class Canvas
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
         if (TreePanel.Contains(p)) { HoverTree(p); return; }
         LeaveTree();
-        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) ? null : WindowAt(p);
+        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || TabAt(p) != null ? null : WindowAt(p);
         HoverGroup(p, w);
         if (w == hovered) return;
         hovered = w;
@@ -3005,7 +3010,8 @@ sealed partial class Canvas
         var pickedGroups = groups.Where(selectedGroups.Contains).Select(g => camera.ToView(g.Box)).ToList();
         RectD? box = picked.Count > 1 || pickedGroups.Count > 0 ? picked.Concat(pickedGroups).Aggregate((a, b) => a.Union(b)) : null;
         var closes = drag == null ? windows.Where(w => CloseShown(w, hovered, k)).Select(w => (w.Hwnd, camera.ToView(w.Frame))).ToList() : [];
-        return new Marks(rings, box, marquee, closes);
+        var tabs = StackTabs(k).Select(t => new StackTabDrawing(t.Window.Hwnd, t.OnTop.Hwnd, t.Text, t.Rect, t.Window == t.OnTop, t.Icon)).ToList();
+        return new Marks(rings, box, marquee, closes, tabs);
     }
 
     /// Windows that get a title, bottom-most first: not tiny, in view, and not with their top
@@ -3081,6 +3087,12 @@ sealed partial class Canvas
             Gdi32.SelectObject(hdc, textFont);
         }
         if (NewGroupRect(k) is RectD button) Pill(button, NewGroupText);
+        foreach (var tab in StackTabs(k))
+        {
+            Gdi32.SelectObject(hdc, tab.Window == tab.OnTop ? groupBlue : pill);
+            Pill(tab.Rect, tab.Text);
+        }
+        Gdi32.SelectObject(hdc, pill);
         Gdi32.DeleteObject(glyph);
         Gdi32.DeleteObject(groupBlue);
         // Rings, the selection box and the marquee's outline (no × buttons: they'd sit on the

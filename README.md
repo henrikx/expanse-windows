@@ -114,6 +114,7 @@ start it with Windows.
 | Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, and any group the box wholly covers, then drag any of them to move them all |
 | <kbd>Shift</kbd> + drag · <kbd>Ctrl</kbd> or <kbd>Shift</kbd> + drag inside a group's box | Add to the selection · select there instead of moving the group |
 | Hold <kbd>Ctrl</kbd> while dragging | Move without snapping |
+| Drop a window inside another · click a tab below them | Stack them, with a tab for each · bring that window to the front |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |

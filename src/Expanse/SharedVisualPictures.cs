@@ -49,6 +49,8 @@ sealed class SharedVisualPictures : IPictures
         public readonly IDCompositionVisual2 Container = container;
         public readonly IDCompositionVisual2[] Ring = ring;
         public readonly IDCompositionVisual2 Close = close;
+        /// The tabs of its stack, while this window is the one in front, by the window of each.
+        public readonly Dictionary<nint, Title> Tabs = new();
         public bool Showing;
     }
 
@@ -60,6 +62,10 @@ sealed class SharedVisualPictures : IPictures
         public string Text = "";
         public double Scale;
         public float W, H;
+        public bool Front;
+        /// The width it was made to fit (0: as wide as its text).
+        public float Fit;
+        public IconImage? Icon;
     }
 
     readonly nint dest;
@@ -229,6 +235,7 @@ sealed class SharedVisualPictures : IPictures
     static void Dispose(MarkLayer layer)
     {
         layer.Container.RemoveAllVisuals();
+        foreach (var t in layer.Tabs.Values) Dispose(t);
         foreach (var v in layer.Ring) v.Dispose();
         layer.Close.Dispose();
         layer.Container.Dispose();
@@ -411,9 +418,10 @@ sealed class SharedVisualPictures : IPictures
         foreach (var (hwnd, layer) in markLayers)
         {
             bool ring = rings.TryGetValue(hwnd, out var r), close = closes.TryGetValue(hwnd, out var c);
-            if (!ring && !close && !layer.Showing) continue;
+            var ownTabs = marks.Tabs.Where(t => t.Layer == hwnd).ToList();
+            if (!ring && !close && ownTabs.Count == 0 && !layer.Showing) continue;
             layer.Container.RemoveAllVisuals();
-            layer.Showing = ring || close;
+            layer.Showing = ring || close || ownTabs.Count > 0;
             if (ring)
             {
                 var strips = new List<RectD>(4);
@@ -434,6 +442,26 @@ sealed class SharedVisualPictures : IPictures
                 layer.Close.SetTransform(new Matrix3x2((float)(1 / s), 0, 0, (float)(1 / s),
                     (float)(Math.Round(cv.X) / s + ox), (float)(Math.Round(cv.Y) / s + oy)));
                 layer.Container.AddVisual(layer.Close, false, null);
+            }
+            foreach (var tab in ownTabs)
+            {
+                if (!layer.Tabs.TryGetValue(tab.Hwnd, out var t))
+                {
+                    device.CreateVisual(out var v);
+                    layer.Tabs[tab.Hwnd] = t = new Title(v);
+                }
+                float fit = (float)tab.Rect.W;
+                if (t.Text != tab.Text || t.Scale != scale || t.Front != tab.Front || t.Fit != fit || t.Icon != tab.Icon)
+                    Draw(t, tab.Text, scale, tab.Front, fit, tab.Icon);
+                // Like the close button: at the screen's pixel size, whatever the camera's zoom.
+                t.Visual.SetTransform(new Matrix3x2((float)(1 / s), 0, 0, (float)(1 / s),
+                    (float)(tab.Rect.X / s + ox), (float)(tab.Rect.Y / s + oy)));
+                layer.Container.AddVisual(t.Visual, false, null);
+            }
+            foreach (nint gone in layer.Tabs.Keys.Where(h => ownTabs.All(t => t.Hwnd != h)).ToList())
+            {
+                layer.Tabs.Remove(gone, out var old);
+                Dispose(old!);
             }
         }
     }
@@ -573,15 +601,7 @@ sealed class SharedVisualPictures : IPictures
                 if (row.Icon is IconImage icon)
                 {
                     // In the space a group's arrow has, so names line up.
-                    float ix = (float)Math.Round(x + 4 * k - d.Panel.X), iy = (float)Math.Round(r.Y + (r.H - icon.Size) / 2 - d.Panel.Y);
-                    var pinned = System.Runtime.InteropServices.GCHandle.Alloc(icon.Pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
-                    try
-                    {
-                        using var image = d2d.CreateBitmap(new Vortice.Mathematics.SizeI(icon.Size, icon.Size), pinned.AddrOfPinnedObject(), (uint)(icon.Size * 4),
-                            new BitmapProperties(new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied)));
-                        d2d.DrawBitmap(image, new Vortice.RawRectF(ix, iy, ix + icon.Size, iy + icon.Size), 1, Vortice.Direct2D1.BitmapInterpolationMode.Linear, null);
-                    }
-                    finally { pinned.Free(); }
+                    DrawIcon(icon, (float)Math.Round(x + 4 * k - d.Panel.X), (float)Math.Round(r.Y + (r.H - icon.Size) / 2 - d.Panel.Y));
                 }
                 double right = r.Right - (row.Count.Length > 0 ? 34 : 8) * k;
                 d2d.DrawText(row.Text, row.Heading ? heading : plain, Raw(x + 24 * k, r.Y, right, r.Bottom), ink);
@@ -877,7 +897,22 @@ sealed class SharedVisualPictures : IPictures
         }
     }
 
-    void Draw(Title t, string text, double scale)
+    /// An app's icon, into the drawing under way.
+    void DrawIcon(IconImage icon, float x, float y)
+    {
+        var pinned = System.Runtime.InteropServices.GCHandle.Alloc(icon.Pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            using var image = d2d.CreateBitmap(new Vortice.Mathematics.SizeI(icon.Size, icon.Size), pinned.AddrOfPinnedObject(), (uint)(icon.Size * 4),
+                new BitmapProperties(new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied)));
+            d2d.DrawBitmap(image, new Vortice.RawRectF(x, y, x + icon.Size, y + icon.Size), 1, Vortice.Direct2D1.BitmapInterpolationMode.Linear, null);
+        }
+        finally { pinned.Free(); }
+    }
+
+    /// `fit`: the pill is this wide, its text ending in an ellipsis if it doesn't fit.
+    /// `icon`: at the left of the text, or alone in the middle if the text has no room.
+    void Draw(Title t, string text, double scale, bool front = false, float fit = 0, IconImage? icon = null)
     {
         if (!fonts.TryGetValue(scale, out var font))
         {
@@ -888,15 +923,19 @@ sealed class SharedVisualPictures : IPictures
             fonts[scale] = font;
         }
         float pad = (float)Math.Round(10 * scale), h = (float)Math.Round(22 * scale);
-        using var layout = dwrite.CreateTextLayout(text, font, (float)(480 * scale), h);
-        float w = (float)Math.Ceiling(layout.Metrics.Width + pad * 2);
+        if (fit > 0) pad = Math.Min(pad, fit / 4); // a narrow one still has room for the ellipsis
+        float iconRoom = icon != null ? icon.Size + (float)Math.Round(Stacks.TabIconGap * scale) : 0;
+        float room = fit > 0 ? fit - pad * 2 - iconRoom : (float)(480 * scale);
+        using var layout = dwrite.CreateTextLayout(text, font, Math.Max(room, 1), h);
+        float w = fit > 0 ? fit : (float)Math.Ceiling(layout.Metrics.Width + pad * 2 + iconRoom);
+        bool showText = room >= 10 * scale;
 
         device.CreateSurface((uint)w, (uint)h, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
         using (var dxgi = surface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
         using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
                    new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
                    BitmapOptions.Target | BitmapOptions.CannotDraw)))
-        using (var pill = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
+        using (var pill = d2d.CreateSolidColorBrush(front ? new Color4(46 / 255f, 110 / 255f, 220 / 255f, 1f) : new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
         using (var ink = d2d.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, 1f)))
         {
             d2d.Target = bitmap;
@@ -906,7 +945,8 @@ sealed class SharedVisualPictures : IPictures
             d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, w, h), AntialiasMode.Aliased);
             d2d.Clear(new Color4(0, 0, 0, 0));
             d2d.FillRoundedRectangle(new RoundedRectangle(new System.Drawing.RectangleF(0, 0, w, h), h / 2, h / 2), pill);
-            d2d.DrawTextLayout(new Vector2(pad, (h - layout.Metrics.Height) / 2), layout, ink);
+            if (icon != null) DrawIcon(icon, (float)Math.Round(showText ? pad : (w - icon.Size) / 2), (float)Math.Round((h - icon.Size) / 2));
+            if (showText) d2d.DrawTextLayout(new Vector2(pad + iconRoom, (h - layout.Metrics.Height) / 2), layout, ink);
             d2d.PopAxisAlignedClip();
             d2d.EndDraw();
             d2d.Target = null;
@@ -919,6 +959,9 @@ sealed class SharedVisualPictures : IPictures
         t.Scale = scale;
         t.W = w;
         t.H = h;
+        t.Front = front;
+        t.Fit = fit;
+        t.Icon = icon;
     }
 
     static void Dispose(Title t)
