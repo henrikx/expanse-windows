@@ -1037,9 +1037,9 @@ sealed partial class Canvas
     /// as starting a drag even if it's only a click, so it's where the window ended up that tells.
     bool MovedSinceFocus(nint hwnd)
     {
-        if (moveStart.hwnd != hwnd || moveStart.at < focusChangedAt - 500) return false;
-        RECT was = moveStart.bounds, now = Dwm.FrameBounds(hwnd);
-        return was.Left != now.Left || was.Top != now.Top || was.Right != now.Right || was.Bottom != now.Bottom;
+        bool same = moveStart.hwnd == hwnd;
+        return FocusRules.MovedByHand(same, moveStart.at, focusChangedAt,
+            moveStart.bounds.ToRectD(), same ? Dwm.FrameBounds(hwnd).ToRectD() : default);
     }
 
     /// A drag that's still going: the left button's check is for one whose end we never heard of.
@@ -1198,28 +1198,35 @@ sealed partial class Canvas
         // Focus on a dialog: whether the dialog is in view is what counts, and its owner comes too.
         var focused = w.Owned.FirstOrDefault(o => o.Hwnd == hwnd) ?? w;
         lastFocusedWindow = w.Hwnd;
-        if (!settings.AutoCentre || !Layout.HiddenEnough(camera.ToView(focused.Frame), WorkView, settings.AutoCentreHidden)) return;
+        // Only what Decide needs is read, and in its order: nothing past the hidden check unless it
+        // gets that far, the input only soon after a window went away, the mouse only otherwise.
+        bool hiddenEnough = settings.AutoCentre && Layout.HiddenEnough(camera.ToView(focused.Frame), WorkView, settings.AutoCentreHidden);
+        if (!hiddenEnough) return;
         // The key that closed it (Alt+F4, Ctrl+W) is still being let go for a moment: that's not
         // you picking another window.
-        if (Environment.TickCount64 - lastGoneAt < 1500 && !InputSince(lastGoneAt + 300))
-        {
-            // You closed (or minimised) a window, and Windows gave focus to the next one in line,
-            // wherever that is. The view stays where you were; going to it looked like a window
-            // reopening.
-            Log.Info($"{focused} got focus after a window went away; the view stays");
-            return;
-        }
+        long now = Environment.TickCount64;
+        bool wentAway = now - lastGoneAt < FocusRules.WentAwayWindow
+            && FocusRules.WindowJustWentAway(now, lastGoneAt, InputSince(lastGoneAt + FocusRules.InputGrace));
         // Not under the pointer while a button's down: you may be dragging something. The window
         // you moved yourself is where you wanted it, so that one stays when you let go.
-        if (ButtonHeld)
+        bool held = !wentAway && ButtonHeld;
+        bool moved = !wentAway && !held && MovedSinceFocus(hwnd);
+        switch (FocusRules.Decide(settings.AutoCentre, hiddenEnough, wentAway, held, moved))
         {
-            if (waitingForRelease != hwnd) Log.Info($"focus went to {focused}: waiting for the mouse button");
-            waitingForRelease = hwnd;
-            SetTimer(overlay.Hwnd, FocusTimer, 30, 0);
-            return;
+            case FocusAction.StayAfterWindowWentAway:
+                // You closed (or minimised) a window, and Windows gave focus to the next one in line,
+                // wherever that is. The view stays where you were; going to it looked like a window
+                // reopening.
+                Log.Info($"{focused} got focus after a window went away; the view stays");
+                return;
+            case FocusAction.WaitForRelease:
+                if (waitingForRelease != hwnd) Log.Info($"focus went to {focused}: waiting for the mouse button");
+                waitingForRelease = hwnd;
+                SetTimer(overlay.Hwnd, FocusTimer, 30, 0);
+                return;
         }
         waitingForRelease = 0;
-        if (MovedSinceFocus(hwnd))
+        if (moved)
         {
             Log.Info($"{focused} was moved by hand as it got focus; the view stays");
             return;
@@ -2057,12 +2064,12 @@ sealed partial class Canvas
         bool newOriginals = false;
         foreach (var w in Stack())
         {
-            if (only is RectD seen && !w.Frame.Intersects(seen)) continue;
+            if (only is RectD seen && !Layout.LiftedByGlide(w.Frame, seen)) continue;
             GetWindowRect(w.Hwnd, out var r);
             int fx = r.Left + w.Insets.Left, fy = r.Top + w.Insets.Top;
             int fw = r.Width - w.Insets.Left - w.Insets.Right, fh = r.Height - w.Insets.Top - w.Insets.Bottom;
-            int x = Math.Clamp(fx, monitor.Left, Math.Max(monitor.Left, monitor.Right - fw));
-            int y = Math.Clamp(fy, monitor.Top, Math.Max(monitor.Top, monitor.Bottom - fh));
+            var spot = MoveWait.LiftSpot(new RectD(fx, fy, fw, fh), monitor.ToRectD());
+            int x = (int)spot.X, y = (int)spot.Y;
             if (x == fx && y == fy) continue;
             if (w.Original == null) { w.Original = r; newOriginals = true; }
             w.Moves.Sent(fx, fy, x, y, Environment.TickCount64);
@@ -2162,23 +2169,21 @@ sealed partial class Canvas
         CompleteIdleWaiters();
     }
 
-    /// How long the overlay stays up after the windows have landed and focus has moved.
-    const int OverlayHoldMs = 80;
-
     /// A window at its spot, or just brought to the front, can still be painting: dropping the
     /// overlay straight away shows that for a frame or two.
     static void HoldOverlayForRepaint()
     {
         var start = Stopwatch.GetTimestamp();
         // DwmFlush can return early (composition paused), so no more than a few of them.
-        for (int frame = 0; frame < 30 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < OverlayHoldMs; frame++) Dwm.DwmFlush();
+        for (int frame = 0; frame < 30 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < MoveWait.HoldMs; frame++) Dwm.DwmFlush();
     }
 
     /// Moves every window to its camera spot (asynchronously: a hung app can't stall us).
     /// Windows can sit fully off-screen; the window manager's limit is about ±32k.
     int Commit()
     {
-        int moved = windows.Count(w => Place(w, saveOriginals: false));
+        var frames = windows.Select(w => camera.ToView(w.WithOwned().Select(o => o.Frame).Aggregate((a, b) => a.Union(b)))).ToList();
+        int moved = MoveWait.InViewFirst(frames, View).Count(i => Place(windows[i], saveOriginals: false));
         Originals.Save(windows);
         return moved;
     }
@@ -2383,35 +2388,23 @@ sealed partial class Canvas
         Log.Info($"scaling {canvasDpi * 100 / 96}% -> {dpi * 100 / 96}%: canvas scaled by {r:0.###}");
     }
 
-    /// Up to MovesWaitMs for the windows to reach their spots, or leave the screen, so the
+    /// Up to MoveWait.LimitMs for the windows to reach their spots, or leave the screen, so the
     /// overlay doesn't drop on a window still on its way.
     int WaitForMoves()
     {
         var start = Stopwatch.GetTimestamp();
         var sent = windows.SelectMany(w => w.WithOwned()).Where(w => w.Placed != null).ToList();
-        // Going out of view counts too: Lift brought it onto the screen, and a slow app would still
-        // be showing there when the overlay drops. Off the main screen is far enough for that.
         bool Landed(CanvasWindow w)
         {
             if (!IsWindow(w.Hwnd) || !IsWindowVisible(w.Hwnd) || IsHungAppWindow(w.Hwnd)) return true;
             var f = Dwm.FrameBounds(w.Hwnd);
-            if (f.Left == w.Placed!.Value.X && f.Top == w.Placed.Value.Y) return true;
-            return !camera.ToView(w.Frame).Intersects(View) && !OnMainScreen(f);
+            return MoveWait.Landed(f.Left == w.Placed!.Value.X && f.Top == w.Placed.Value.Y, camera.ToView(w.Frame).Intersects(View), OnMainScreen(f));
         }
-        // DwmFlush can return early (composition paused), so frames are capped as well as time.
-        int frame = 0;
-        for (; frame < 60 && Stopwatch.GetElapsedTime(start).TotalMilliseconds < MovesWaitMs; frame++)
-        {
-            if (sent.All(Landed)) return frame;
-            Dwm.DwmFlush();
-        }
+        int frame = MoveWait.Run(() => sent.All(Landed), () => Stopwatch.GetElapsedTime(start).TotalMilliseconds, () => Dwm.DwmFlush());
         var late = sent.Where(w => !Landed(w)).Select(w => $"{w} at {Dwm.FrameBounds(w.Hwnd).ToRectD()}, not {w.Placed!.Value.X},{w.Placed.Value.Y}").ToList();
         if (late.Count > 0) Log.Info($"hand-back: still moving after {frame} frames: {string.Join("; ", late)}");
         return frame;
     }
-
-    /// The longest the overlay waits for slow apps to move, so one that won't can't hold it up for long.
-    const int MovesWaitMs = 200;
 
     /// Makes `hwnd` the foreground window. Windows only lets the foreground process (or the
     /// one that got the last input) do that: a hotkey or a click on the overlay qualifies. If
@@ -2531,7 +2524,7 @@ sealed partial class Canvas
     void Animate(Camera to, double duration, Action? completion = null, List<(CanvasWindow, RectD, RectD)>? moves = null)
     {
         // The camera goes in a straight line, so this holds all a glide or dive will show.
-        if (gliding) Lift(camera.ToCanvas(View).Union(to.ToCanvas(View)));
+        if (gliding) Lift(Layout.GlideArea(camera, to, View));
         animation = new Animation
         {
             From = camera, To = to, Start = Stopwatch.GetTimestamp(), Duration = duration, Completion = completion, Moves = moves,

@@ -12,6 +12,13 @@ public enum Direction { Left, Right, Up, Down }
 /// CGRect's intersects / insetBy (see RectD).
 public static class Layout
 {
+    /// What a glide from `from` to `to` shows: the camera goes in a straight line, so this holds it all.
+    public static RectD GlideArea(Camera from, Camera to, RectD view) => from.ToCanvas(view).Union(to.ToCanvas(view));
+
+    /// Whether a glide lifts a window: only those it shows some of. A parked window it never shows
+    /// would be brought on screen and flash as the overlay drops.
+    public static bool LiftedByGlide(RectD frame, RectD area) => frame.Intersects(area);
+
     /// The gap between neighbouring windows: edge snapping, new-window placement and Tidy Up.
     public const double Gap = 20;
     /// Windows closer than this to a neighbour count as one group (cluster). Tidy Up tidies each

@@ -112,7 +112,7 @@ sealed class Updater(Action<Action> post)
             return (Outcome.Failed, $"GitHub answered {(int)response.StatusCode} {response.ReasonPhrase}.", null, null);
         if (Parse(await response.Content.ReadAsStringAsync(), anyHost: source != null) is not Release release)
             return (Outcome.Failed, "GitHub didn't say which release is the latest.", null, null);
-        if (!IsNewer(release.Version, CurrentVersion))
+        if (!Versions.IsNewer(release.Version, CurrentVersion))
             return (Outcome.UpToDate, $"Expanse {CurrentVersion} is the latest version.", release, null);
         // Already downloaded and waiting (a newer one since means downloading that).
         if (have is { } h && h.release.Version == release.Version && File.Exists(h.exe))
@@ -146,19 +146,6 @@ sealed class Updater(Action<Action> post)
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or UriFormatException) { }
         return null;
-    }
-
-    /// "0.1.10" is newer than "0.1.9".
-    public static bool IsNewer(string a, string than)
-    {
-        var x = a.Split('.').Select(p => int.TryParse(p, out int n) ? n : 0).ToArray();
-        var y = than.Split('.').Select(p => int.TryParse(p, out int n) ? n : 0).ToArray();
-        for (int i = 0; i < Math.Max(x.Length, y.Length); i++)
-        {
-            int p = i < x.Length ? x[i] : 0, q = i < y.Length ? y[i] : 0;
-            if (p != q) return p > q;
-        }
-        return false;
     }
 
     static string Plain(string? version) => (version ?? "0").Split('+')[0].Trim();

@@ -42,6 +42,11 @@ MoveTests.Run(Expect);
 PerDesktopTests.Run(Expect);
 CameraTests.Run(Expect);
 ScreenTests.Run(Expect);
+VersionTests.Run(Expect);
+FocusRuleTests.Run(Expect);
+GlideTests.Run(Expect);
+SavedSpotTests.Run(Expect);
+SlowAppTests.Run(Expect);
 int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---

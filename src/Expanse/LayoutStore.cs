@@ -204,16 +204,7 @@ static class LayoutStore
     /// entry that belongs to another open window, or one away (minimised) and due back.
     public static SavedWindow? TakeMatch(CanvasWindow w, ISet<(long, uint)> open, List<SavedWindow> pool)
     {
-        int i = pool.FindIndex(e => e.Hwnd == w.Hwnd && e.Pid == w.Pid && SameApp(e, w));
-        if (i < 0)
-        {
-            // A window far smaller than an entry (an update or loading box, a small dialog) doesn't
-            // take it: the app's main window, a moment later, does (see LargerSpot).
-            bool Free(SavedWindow e) => !open.Contains((e.Hwnd, e.Pid)) && !Exists(e.Hwnd, e.Pid) && !TooSmall(w.Frame.Size, e);
-            string key = TitleKey(w.Title);
-            i = pool.FindIndex(e => SameApp(e, w) && e.Title == key && Free(e));
-            if (i < 0) i = pool.FindIndex(e => SameApp(e, w) && Free(e));
-        }
+        int i = SavedSpots.FindMatch(Seeker(w), Spots(pool), (h, p) => open.Contains((h, p)) || Exists(h, p));
         if (i < 0) return null;
         var match = pool[i];
         pool.RemoveAt(i);
@@ -222,13 +213,14 @@ static class LayoutStore
 
     /// A free entry of the app's that `w` is too small to take (see TakeMatch): the window it's
     /// standing in for while the app starts up. Left in the pool.
-    public static SavedWindow? LargerSpot(CanvasWindow w, ISet<(long, uint)> open, List<SavedWindow> pool) =>
-        pool.FirstOrDefault(e => SameApp(e, w) && TooSmall(w.Frame.Size, e) && !open.Contains((e.Hwnd, e.Pid)) && !Exists(e.Hwnd, e.Pid));
+    public static SavedWindow? LargerSpot(CanvasWindow w, ISet<(long, uint)> open, List<SavedWindow> pool)
+    {
+        int i = SavedSpots.FindLarger(Seeker(w), Spots(pool), (h, p) => open.Contains((h, p)) || Exists(h, p));
+        return i < 0 ? null : pool[i];
+    }
 
-    /// Under a quarter of the entry's area: not the same window coming back.
-    static bool TooSmall(SizeD size, SavedWindow e) =>
-        (e.PW ?? e.W) is double w && (e.PH ?? e.H) is double h && w > 0 && h > 0 && size.W * size.H < 0.25 * w * h;
+    static SpotSeeker Seeker(CanvasWindow w) => new(w.AppPath, w.Class, TitleKey(w.Title), w.Frame.Size, w.Hwnd, w.Pid);
 
-    static bool SameApp(SavedWindow e, CanvasWindow w) =>
-        string.Equals(e.App, w.AppPath, StringComparison.OrdinalIgnoreCase) && e.Class == w.Class;
+    static List<SavedSpot> Spots(List<SavedWindow> pool) =>
+        pool.Select(e => new SavedSpot(e.App, e.Class, e.Title, e.W, e.H, e.PW, e.PH, e.Hwnd, e.Pid)).ToList();
 }
