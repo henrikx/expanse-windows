@@ -1410,6 +1410,11 @@ sealed partial class Canvas
             CentreOn(minimap.CanvasPoint(p));
         }
         else if (spaceHeld) drag = new Drag(DragKind.Pan, p);
+        else if (FitAt(p) is (CanvasWindow stackFront, List<CanvasWindow> stackMembers))
+        {
+            FitStack(stackFront, stackMembers);
+            return;
+        }
         else if (TabAt(p) is CanvasWindow tabbed)
         {
             RaiseStacked(tabbed);
@@ -2449,7 +2454,9 @@ sealed partial class Canvas
         }
         int frame = MoveWait.Run(() => sent.All(Landed), () => Stopwatch.GetElapsedTime(start).TotalMilliseconds, () => Dwm.DwmFlush());
         var late = sent.Where(w => !Landed(w)).Select(w => $"{w} at {Dwm.FrameBounds(w.Hwnd).ToRectD()}, not {w.Placed!.Value.X},{w.Placed.Value.Y}").ToList();
-        if (late.Count > 0) Log.Info($"hand-back: still moving after {frame} frames: {string.Join("; ", late)}");
+        double ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        if (late.Count > 0) Log.Info($"hand-back: still moving after {frame} frames, {ms:0}ms: {string.Join("; ", late)}");
+        else if (frame > 0) Log.Info($"hand-back: all landed after {frame} frames, {ms:0}ms");
         return frame;
     }
 
@@ -2967,7 +2974,7 @@ sealed partial class Canvas
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
         if (TreePanel.Contains(p)) { HoverTree(p); return; }
         LeaveTree();
-        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || TabAt(p) != null ? null : WindowAt(p);
+        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || OverStackBar(p) ? null : WindowAt(p);
         HoverGroup(p, w);
         if (w == hovered) return;
         hovered = w;
@@ -3018,7 +3025,9 @@ sealed partial class Canvas
         var pickedGroups = groups.Where(selectedGroups.Contains).Select(g => camera.ToView(g.Box)).ToList();
         RectD? box = picked.Count > 1 || pickedGroups.Count > 0 ? picked.Concat(pickedGroups).Aggregate((a, b) => a.Union(b)) : null;
         var closes = drag == null ? windows.Where(w => CloseShown(w, hovered, k)).Select(w => (w.Hwnd, camera.ToView(w.Frame))).ToList() : [];
-        var tabs = StackTabs(k).Select(t => new StackTabDrawing(t.Window.Hwnd, t.OnTop.Hwnd, t.Text, t.Rect, t.Window == t.OnTop, t.Icon)).ToList();
+        var stacked = StackTabs(k);
+        var tabs = stacked.Select(t => new StackTabDrawing(t.Window.Hwnd, t.OnTop.Hwnd, t.Text, t.Rect, t.Window == t.OnTop, t.Icon)).ToList();
+        tabs.AddRange(stacked.GroupBy(t => t.OnTop).Select(s => new StackTabDrawing(0, s.Key.Hwnd, "", Stacks.FitRect(s.First().Rect, k), false, null, FitButton: true)));
         return new Marks(rings, box, marquee, closes, tabs);
     }
 
@@ -3100,7 +3109,10 @@ sealed partial class Canvas
             Gdi32.SelectObject(hdc, tab.Window == tab.OnTop ? groupBlue : pill);
             Pill(tab.Rect, tab.Text);
         }
+        nint fitFont = Gdi32.SelectObject(hdc, glyph);
         Gdi32.SelectObject(hdc, pill);
+        foreach (var stack in StackTabs(k).GroupBy(t => t.OnTop)) Pill(Stacks.FitRect(stack.First().Rect, k), "\uE8C8");
+        Gdi32.SelectObject(hdc, fitFont);
         Gdi32.DeleteObject(glyph);
         Gdi32.DeleteObject(groupBlue);
         // Rings, the selection box and the marquee's outline (no × buttons: they'd sit on the

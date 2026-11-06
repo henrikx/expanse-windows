@@ -224,7 +224,7 @@ sealed partial class Canvas
     nint GroupCursorAt(Vec p)
     {
         if (drag != null) return 0;
-        if (NewGroupRect(UiScale)?.Contains(p) == true || TabAt(p) != null) return LoadCursor(0, IDC_HAND);
+        if (NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p)) return LoadCursor(0, IDC_HAND);
         if (TreePanel.Contains(p)) return treeHover >= 0 ? LoadCursor(0, IDC_HAND) : 0;
         if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || WindowAt(p) != null) return 0;
         if (GroupHitAt(p) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
@@ -261,7 +261,7 @@ sealed partial class Canvas
     /// The window a right press landed on, if nothing sits over it there.
     void PressRight(Vec p)
     {
-        bool covered = NewGroupRect(UiScale)?.Contains(p) == true || TabAt(p) != null || TreePanel.Contains(p)
+        bool covered = NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p) || TreePanel.Contains(p)
             || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p);
         rightPressed = CanPressRight && !covered ? WindowAt(p) : null;
     }

@@ -10,8 +10,9 @@ using static Expanse.Native.User32;
 
 namespace Expanse;
 
-/// A tab at 100%: `Rect` is in screen coordinates.
-readonly record struct BarTab(nint Hwnd, string Text, RectD Rect, bool Front, IconImage? Icon);
+/// A tab at 100%: `Rect` is in screen coordinates. `Fit`: the stack's fit button, not a tab; `Hwnd`
+/// is then its front window.
+readonly record struct BarTab(nint Hwnd, string Text, RectD Rect, bool Front, IconImage? Icon, bool Fit = false);
 
 /// The tabs of stacks at 100%, where there's no overlay to draw them on: a small window for each
 /// stack that shows, which never takes focus and isn't in the taskbar or Alt-Tab. Each goes directly
@@ -34,13 +35,16 @@ sealed class StackBars
     readonly WndProc proc; // kept alive: Windows holds a pointer to it
     readonly nint instance;
     readonly Action<nint> clicked;
+    readonly Action<nint, nint[]> fitClicked;
     readonly ID2D1Factory factory = D2D1.D2D1CreateFactory<ID2D1Factory>();
     readonly IDWriteFactory dwrite = DWrite.DWriteCreateFactory<IDWriteFactory>(Vortice.DirectWrite.FactoryType.Shared);
     readonly ID2D1DCRenderTarget target;
 
-    public StackBars(Action<nint> clicked)
+    /// `fitClicked`: the front window and all the stack's windows.
+    public StackBars(Action<nint> clicked, Action<nint, nint[]> fitClicked)
     {
         this.clicked = clicked;
+        this.fitClicked = fitClicked;
         proc = WindowProc;
         instance = RegisterWindowClass(ClassName, proc, LoadCursor(0, IDC_HAND));
         target = factory.CreateDCRenderTarget(new RenderTargetProperties(
@@ -80,7 +84,7 @@ sealed class StackBars
             bar.Tabs = tabs;
             bar.Box = tabs.Skip(1).Aggregate(tabs[0].Rect, (a, t) => a.Union(t.Rect));
             string look = $"{scale}|" + string.Join("|", tabs.Select(t =>
-                $"{t.Text}/{t.Rect.X - bar.Box.X}/{t.Rect.W}/{t.Front}/{(t.Icon == null ? 0 : RuntimeHelpers(t.Icon))}"));
+                $"{t.Fit}/{t.Text}/{t.Rect.X - bar.Box.X}/{t.Rect.W}/{t.Front}/{(t.Icon == null ? 0 : RuntimeHelpers(t.Icon))}"));
             if (look != bar.Drawn)
             {
                 Render(bar, scale);
@@ -156,6 +160,12 @@ sealed class StackBars
         bool showText = room >= 10 * scale;
         using var pill = target.CreateSolidColorBrush(tab.Front ? new Color4(46 / 255f, 110 / 255f, 220 / 255f, 1f) : new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f));
         target.FillRoundedRectangle(new RoundedRectangle(new System.Drawing.RectangleF(x, y, w, h), h / 2, h / 2), pill);
+        if (tab.Fit)
+        {
+            using var line = target.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, 1f));
+            DrawFitGlyph(target, pill, line, x, y, h, scale);
+            return;
+        }
         if (tab.Icon is IconImage icon)
         {
             float ix = (float)Math.Round(showText ? x + pad : x + (w - icon.Size) / 2), iy = (float)Math.Round(y + (h - icon.Size) / 2);
@@ -178,6 +188,20 @@ sealed class StackBars
         target.DrawTextLayout(new Vector2(x + pad + iconRoom, y + (h - layout.Metrics.Height) / 2), layout, ink);
     }
 
+    /// Two overlapping squares of one size, in the middle of a button `size` across at (x, y): the
+    /// fit button's mark, on the canvas too. The one in front is filled with `back` to hide the other's corner.
+    public static void DrawFitGlyph(ID2D1RenderTarget to, ID2D1Brush back, ID2D1Brush line, float x, float y, float size, double scale)
+    {
+        float whole = (float)Math.Round(11 * scale), shift = (float)Math.Round(3 * scale), side = whole - shift;
+        float stroke = (float)Math.Max(1, Math.Round(scale));
+        float left = (float)Math.Round(x + (size - whole) / 2) + stroke / 2, top = (float)Math.Round(y + (size - whole) / 2) + stroke / 2;
+        var behind = new System.Drawing.RectangleF(left + shift, top, side, side);
+        var ahead = new System.Drawing.RectangleF(left, top + shift, side, side);
+        to.DrawRectangle(behind, line, stroke);
+        to.FillRectangle(ahead, back);
+        to.DrawRectangle(ahead, line, stroke);
+    }
+
     nint WindowProc(nint hwnd, uint msg, nint wParam, nint lParam)
     {
         try
@@ -190,7 +214,11 @@ sealed class StackBars
                     if (byKey.Values.FirstOrDefault(b => b.Hwnd == hwnd) is Bar bar)
                     {
                         var p = new Vec((short)(lParam & 0xFFFF) + bar.Box.X, (short)((lParam >> 16) & 0xFFFF) + bar.Box.Y);
-                        if (bar.Tabs.FirstOrDefault(t => t.Rect.Contains(p)) is { Hwnd: not 0 } tab) clicked(tab.Hwnd);
+                        if (bar.Tabs.FirstOrDefault(t => t.Rect.Contains(p)) is { Hwnd: not 0 } tab)
+                        {
+                            if (tab.Fit) fitClicked(tab.Hwnd, bar.Tabs.Where(t => !t.Fit).Select(t => t.Hwnd).ToArray());
+                            else clicked(tab.Hwnd);
+                        }
                     }
                     return 0;
             }

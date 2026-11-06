@@ -36,7 +36,7 @@ sealed partial class Canvas
         var icons = members.Select(w => appIcons.Get(w, (int)Math.Round(GroupTree.IconSize * k))).ToList();
         // A little to spare: the tab's text is drawn by another API, which may measure it wider.
         var rects = Stacks.TabRects(bounds,
-            texts.Select((t, i) => TextWidth(t, k) + Math.Ceiling(2 * k) + (icons[i] != null ? Stacks.TabIconRoom * k : 0)).ToList(), view, k);
+            texts.Select((t, i) => TextWidth(t, k) + Math.Ceiling(2 * k) + (icons[i] != null ? Stacks.TabIconRoom * k : 0)).ToList(), view, k, Stacks.FitRoom(k));
         for (int i = 0; i < members.Count; i++)
             tabs.Add(new StackTab(members[i], open[stack.Front], texts[i], rects[i], icons[i]));
         return tabs;
@@ -68,11 +68,13 @@ sealed partial class Canvas
         {
             var tabs = TabsOf(stack, open, WorkView, k);
             if (tabs.Count == 0) continue;
-            var onScreen = tabs.Select(t => new BarTab(t.Window.Hwnd, t.Text, t.Rect.Offset(new Vec(monitor.Left, monitor.Top)), t.Window == t.OnTop, t.Icon)).ToList();
+            var toScreen = new Vec(monitor.Left, monitor.Top);
+            var onScreen = tabs.Select(t => new BarTab(t.Window.Hwnd, t.Text, t.Rect.Offset(toScreen), t.Window == t.OnTop, t.Icon)).ToList();
+            onScreen.Add(new BarTab(tabs[0].OnTop.Hwnd, "", Stacks.FitRect(tabs[0].Rect, k).Offset(toScreen), false, null, Fit: true));
             wanted.Add((open[stack.Outer].Hwnd, tabs[0].OnTop.Hwnd, onScreen));
         }
         if (wanted.Count == 0) { stackBars?.Hide(); return; }
-        stackBars ??= new StackBars(TabClickedAt100);
+        stackBars ??= new StackBars(TabClickedAt100, FitClickedAt100);
         stackBars.Show(wanted, k);
     }
 
@@ -88,6 +90,13 @@ sealed partial class Canvas
         UpdateStackBars();
     }
 
+    /// A click on the fit button at 100%. Focus stays where it is.
+    void FitClickedAt100(nint front, nint[] members)
+    {
+        if (paused || active || windows.FirstOrDefault(x => x.Hwnd == front) is not CanvasWindow w) return;
+        FitStack(w, windows.Where(x => members.Contains(x.Hwnd) && IsWindow(x.Hwnd)).ToList());
+    }
+
     /// The app's name, or the window's title where the stack has more of that app.
     static string TabText(CanvasWindow w, List<CanvasWindow> members) =>
         w.Title.Length > 0 && members.Count(m => m.AppName == w.AppName) > 1 ? w.Title : w.AppName;
@@ -95,11 +104,26 @@ sealed partial class Canvas
     /// The window of the tab under `p`. The panels sit over the tabs, as does any window in front.
     CanvasWindow? TabAt(Vec p)
     {
-        if (TreePanel.Contains(p) || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p)) return null;
+        if (OverPanel(p)) return null;
         foreach (var tab in StackTabs(UiScale))
             if (tab.Rect.Contains(p) && !InFrontOf(tab.OnTop, p)) return tab.Window;
         return null;
     }
+
+    /// The stack whose fit button is under `p`: its front window and all its windows.
+    (CanvasWindow front, List<CanvasWindow> members)? FitAt(Vec p)
+    {
+        if (OverPanel(p)) return null;
+        double k = UiScale;
+        foreach (var stack in StackTabs(k).GroupBy(t => t.OnTop))
+            if (Stacks.FitRect(stack.First().Rect, k).Contains(p) && !InFrontOf(stack.Key, p))
+                return (stack.Key, stack.Select(t => t.Window).ToList());
+        return null;
+    }
+
+    bool OverPanel(Vec p) => TreePanel.Contains(p) || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p);
+
+    bool OverStackBar(Vec p) => TabAt(p) != null || FitAt(p) != null;
 
     bool InFrontOf(CanvasWindow w, Vec p) =>
         windows.Skip(windows.IndexOf(w) + 1).SelectMany(f => f.WithOwned()).Concat(w.Owned).Any(f => camera.ToView(f.Frame).Contains(p));
@@ -112,5 +136,30 @@ sealed partial class Canvas
         SetWindowPos(w.Hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         BringToFront(w);
         Redraw();
+    }
+
+    /// The fit button: every window of the stack to the front window's size and spot, so switching
+    /// tabs swaps what's there in place. It's the size you chose for them from now on. An app that
+    /// won't take the size keeps as close as it goes, at the same corner.
+    void FitStack(CanvasWindow front, List<CanvasWindow> members)
+    {
+        var to = front.Frame;
+        foreach (var w in members.Where(m => m != front))
+        {
+            var from = w.Frame;
+            var actual = ResizeReal(w, to.Size);
+            if (!w.SizesItself) w.Preferred = actual;
+            w.Frame = Stacks.Fitted(to, actual);
+            var by = w.Frame.Origin - from.Origin;
+            foreach (var o in w.Owned) o.Frame = o.Frame.Offset(by);
+            if (active) PictureMoved(w);
+            else Place(w);
+            NoteUserMove(w, from.Origin);
+            Log.Info($"fit: {w} {from.W:0}x{from.H:0} -> {actual.W:0}x{actual.H:0}, asked {to.W:0}x{to.H:0}");
+        }
+        SettleGroups();
+        ScheduleSave();
+        if (active) Relayout();
+        UpdateStackBars();
     }
 }

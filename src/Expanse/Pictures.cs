@@ -96,8 +96,9 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
 readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Label, RectD Trash, bool Hovered);
 
 /// A window's tab in its stack, in view coordinates. `Front`: the one on top. `Layer`: that window,
-/// whose place in the stack the tabs take, so what's in front of it covers them.
-readonly record struct StackTabDrawing(nint Hwnd, nint Layer, string Text, RectD Rect, bool Front, IconImage? Icon);
+/// whose place in the stack the tabs take, so what's in front of it covers them. `FitButton`: the
+/// stack's fit button instead, with no window of its own (`Hwnd` 0).
+readonly record struct StackTabDrawing(nint Hwnd, nint Layer, string Text, RectD Rect, bool Front, IconImage? Icon, bool FitButton = false);
 
 /// View coordinates. Rings and close buttons belong to a window (its handle), and stack with its
 /// picture. `Closes`: the pictures showing a close button (see Marks.CloseRect). `Tabs`: see StackTabDrawing.

@@ -19,6 +19,16 @@ public static class Stacks
     /// What an icon adds to a tab's width: the icon and the space before its text.
     public const double TabIconRoom = GroupTree.IconSize + TabIconGap, TabIconGap = 5;
 
+    /// What the fit button (a round one, as tall as a tab) takes up to the left of the tabs: pass to TabRects.
+    public static double FitRoom(double k) => Math.Round(Groups.LabelHeight * k) + Math.Round(TabGap * k);
+
+    /// The fit button, to the left of the first tab.
+    public static RectD FitRect(RectD firstTab, double k) => new(firstTab.X - FitRoom(k), firstTab.Y, firstTab.H, firstTab.H);
+
+    /// Where the fit button puts a window whose app gave it `size`: at the same corner as the front
+    /// window, so one that won't take the size still lines up, and stays in the stack.
+    public static RectD Fitted(RectD front, SizeD size) => new(front.X, front.Y, size.W, size.H);
+
     /// `frames` bottom first. `ids` stay the same for a window, and put the tabs in their order.
     /// The largest window takes everything inside it, so nested windows all join the outermost.
     /// Of equal sizes, the one in front is the outer one.
@@ -55,20 +65,20 @@ public static class Stacks
 
     /// The tabs of a stack, in view space, in a row just below `viewBounds`, all of its windows: the
     /// same size at any zoom, narrower where they wouldn't fit its width, and always on screen.
-    /// On whole pixels, or their text would blur.
-    public static RectD[] TabRects(RectD viewBounds, IReadOnlyList<double> textWidths, RectD view, double k)
+    /// On whole pixels, or their text would blur. `lead`: room to leave before the first tab.
+    public static RectD[] TabRects(RectD viewBounds, IReadOnlyList<double> textWidths, RectD view, double k, double lead = 0)
     {
         int n = textWidths.Count;
         if (n == 0) return [];
         double h = Math.Round(Groups.LabelHeight * k), gap = Math.Round(TabGap * k), gaps = gap * (n - 1);
         var widths = textWidths.Select(t => Math.Min(t + 2 * Groups.LabelPad * k, TabMaxWidth * k)).ToArray();
-        if (widths.Sum() + gaps > viewBounds.W)
+        if (lead + widths.Sum() + gaps > viewBounds.W)
         {
-            double even = (viewBounds.W - gaps) / n;
+            double even = (viewBounds.W - lead - gaps) / n;
             widths = widths.Select(w => Math.Max(Math.Min(w, even), TabMinWidth * k)).ToArray();
         }
-        double total = widths.Sum() + gaps;
-        double x = Math.Round(Math.Clamp(viewBounds.X, view.X, Math.Max(view.X, view.Right - total)));
+        double total = lead + widths.Sum() + gaps;
+        double x = Math.Round(Math.Clamp(viewBounds.X, view.X, Math.Max(view.X, view.Right - total))) + lead;
         double y = Math.Round(Math.Clamp(viewBounds.Bottom + TabDrop * k, view.Y, Math.Max(view.Y, view.Bottom - h)));
         var tabs = new RectD[n];
         for (int i = 0; i < n; i++)

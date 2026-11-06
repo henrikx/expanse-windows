@@ -452,7 +452,7 @@ sealed class SharedVisualPictures : IPictures
                 }
                 float fit = (float)tab.Rect.W;
                 if (t.Text != tab.Text || t.Scale != scale || t.Front != tab.Front || t.Fit != fit || t.Icon != tab.Icon)
-                    Draw(t, tab.Text, scale, tab.Front, fit, tab.Icon);
+                    Draw(t, tab.Text, scale, tab.Front, fit, tab.Icon, tab.FitButton);
                 // Like the close button: at the screen's pixel size, whatever the camera's zoom.
                 t.Visual.SetTransform(new Matrix3x2((float)(1 / s), 0, 0, (float)(1 / s),
                     (float)(tab.Rect.X / s + ox), (float)(tab.Rect.Y / s + oy)));
@@ -912,7 +912,8 @@ sealed class SharedVisualPictures : IPictures
 
     /// `fit`: the pill is this wide, its text ending in an ellipsis if it doesn't fit.
     /// `icon`: at the left of the text, or alone in the middle if the text has no room.
-    void Draw(Title t, string text, double scale, bool front = false, float fit = 0, IconImage? icon = null)
+    /// `fitGlyph`: the stack's fit button: its mark instead of any text.
+    void Draw(Title t, string text, double scale, bool front = false, float fit = 0, IconImage? icon = null, bool fitGlyph = false)
     {
         if (!fonts.TryGetValue(scale, out var font))
         {
@@ -946,7 +947,8 @@ sealed class SharedVisualPictures : IPictures
             d2d.Clear(new Color4(0, 0, 0, 0));
             d2d.FillRoundedRectangle(new RoundedRectangle(new System.Drawing.RectangleF(0, 0, w, h), h / 2, h / 2), pill);
             if (icon != null) DrawIcon(icon, (float)Math.Round(showText ? pad : (w - icon.Size) / 2), (float)Math.Round((h - icon.Size) / 2));
-            if (showText) d2d.DrawTextLayout(new Vector2(pad + iconRoom, (h - layout.Metrics.Height) / 2), layout, ink);
+            if (fitGlyph) StackBars.DrawFitGlyph(d2d, pill, ink, 0, 0, h, scale);
+            else if (showText) d2d.DrawTextLayout(new Vector2(pad + iconRoom, (h - layout.Metrics.Height) / 2), layout, ink);
             d2d.PopAxisAlignedClip();
             d2d.EndDraw();
             d2d.Target = null;

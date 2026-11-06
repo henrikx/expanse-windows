@@ -93,6 +93,32 @@ static class StackTests
             var narrowed = Stacks.TabRects(new(100.5, 100.25, 301, 200), [190, 190, 190], view, scale);
             Is($"whole pixels at {scale:0.##}x", narrowed.All(t => t.X == Math.Floor(t.X) && t.Y == Math.Floor(t.Y) && t.W == Math.Floor(t.W) && t.H == Math.Floor(t.H)), string.Join(" ", narrowed));
             Is($"no overlap at {scale:0.##}x", narrowed.Zip(narrowed.Skip(1)).All(p => p.First.Right <= p.Second.X), string.Join(" ", narrowed));
+            var led = Stacks.TabRects(new(100.5, 100.25, 301, 200), [190, 190, 190], view, scale, Stacks.FitRoom(scale));
+            var fit = Stacks.FitRect(led[0], scale);
+            Is($"the fit button is on whole pixels at {scale:0.##}x", fit.X == Math.Floor(fit.X) && fit.W == Math.Floor(fit.W), $"{fit}");
+            Is($"and clear of the first tab at {scale:0.##}x", fit.Right < led[0].X, $"{fit} {led[0]}");
         }
+
+        // The fit button
+        RectD stackBox = new(100, 100, 800, 600);
+        var fitted = Stacks.TabRects(stackBox, [60, 40], view, 1, Stacks.FitRoom(1));
+        var button = Stacks.FitRect(fitted[0], 1);
+        Is("the button starts at the stack's left", button == new RectD(100, 708, 22, 22), $"{button}");
+        Is("the tabs follow it", fitted[0] == new RectD(126, 708, 80, 22), $"{fitted[0]}");
+        var tightLed = Stacks.TabRects(new(100, 100, 300, 200), [190, 190, 190], view, 1, Stacks.FitRoom(1));
+        Is("narrowed tabs leave room for it", tightLed[^1].Right <= 400 && Stacks.FitRect(tightLed[0], 1).X == 100, string.Join(" ", tightLed));
+        Is("it stays on screen to the left", view.Contains(Stacks.FitRect(Stacks.TabRects(new(-500, 100, 800, 600), [60], view, 1, Stacks.FitRoom(1))[0], 1)));
+        var atRight = Stacks.TabRects(new(1990, 100, 800, 600), [60], view, 1, Stacks.FitRoom(1));
+        Is("it and the tabs stay on screen to the right", view.Contains(Stacks.FitRect(atRight[0], 1)) && view.Contains(atRight[0]), $"{atRight[0]}");
+
+        // Fitting: whatever the apps do, the stack holds together, and a second click changes nothing
+        RectD Fit(RectD front, double w, double h) => Stacks.Fitted(front, new SizeD(w, h));
+        Is("takes the front window's corner", Fit(chrome, 2098, 1226) == chrome);
+        RectD[] fittedAll = [Fit(chrome, 1911, 1226), Fit(chrome, 1500, 1226), chrome];
+        One("windows of the same size at one spot are a stack", [chrome, chrome, chrome], 2, [0, 1, 2], 2);
+        One("an app with a limit on its size is smaller, and stays in", fittedAll, 2, [0, 1, 2], 2);
+        One("an app that won't get as small as the front is larger, and stays in", [Fit(chrome, 2400, 1400), chrome], 0, [0, 1], 1);
+        var size = new SizeD(chrome.W, chrome.H);
+        Is("fitting twice is the same as once", Stacks.Fitted(Stacks.Fitted(chrome, size), size) == chrome);
     }
 }
