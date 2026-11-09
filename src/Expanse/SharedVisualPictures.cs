@@ -36,11 +36,20 @@ sealed class SharedVisualPictures : IPictures
     static extern int D3D11CreateDevice(nint adapter, int driverType, nint software, uint flags, int[]? levels,
         uint levelCount, uint sdkVersion, out nint device, out int level, out nint context);
 
-    sealed class Picture(IDCompositionVisual2 visual, nint thumb)
+    sealed class Picture(IDCompositionVisual2 visual, nint thumb, (int w, int h) size = default, RECT source = default)
     {
         public readonly IDCompositionVisual2 Visual = visual;
         public readonly nint Thumb = thumb;
+        /// What it was made for: a window at another size, or with other borders, needs a new one.
+        public readonly (int w, int h) Size = size;
+        public readonly RECT Source = source;
+
+        public bool Fits(CanvasWindow w) =>
+            Size == PictureSize(w) && (Source.Left, Source.Top, Source.Right, Source.Bottom) ==
+            (w.SourceRect.Left, w.SourceRect.Top, w.SourceRect.Right, w.SourceRect.Bottom);
     }
+
+    static (int w, int h) PictureSize(CanvasWindow w) => ((int)Math.Round(w.Frame.W), (int)Math.Round(w.Frame.H));
 
     /// A picture's own ring and close button, in the canvas right above it: a window in front
     /// covers them as it covers the picture. Canvas coordinates (see SetMarks).
@@ -205,16 +214,51 @@ sealed class SharedVisualPictures : IPictures
 
     // MARK: Pictures
 
+    /// The pictures from the last time the canvas was up are still here (Detach keeps them): DWM
+    /// takes a while over a new one the first time it shows it, and zooming out shows them all at
+    /// once, which stuttered. Those of windows that went are dropped, those of windows that changed
+    /// size are made again, the rest go back into the stack in its order, at their windows' spots.
     public bool Attach(IEnumerable<CanvasWindow> bottomToTop)
     {
+        var stack = bottomToTop.ToList();
+        var wanted = stack.Select(w => w.Hwnd).ToHashSet();
+        foreach (nint gone in pictures.Keys.Where(h => !wanted.Contains(h)).ToList()) Drop(gone);
+        foreach (var w in stack)
+            if (pictures.TryGetValue(w.Hwnd, out var p) && !p.Fits(w)) Drop(w.Hwnd);
+        int kept = pictures.Count;
+        canvas.RemoveAllVisuals();
         int tried = 0;
-        foreach (var w in bottomToTop)
+        foreach (var w in stack)
         {
+            if (pictures.TryGetValue(w.Hwnd, out var p))
+            {
+                p.Visual.SetOffsetX((float)w.Frame.X);
+                p.Visual.SetOffsetY((float)w.Frame.Y);
+                canvas.AddVisual(p.Visual, false, null);
+                canvas.AddVisual(markLayers[w.Hwnd].Container, true, p.Visual);
+                continue;
+            }
             tried++;
             if (!Add(w) && pictures.Count == 0 && tried >= 3) break; // not working here: stop early
         }
         lastCamera = null;
+        if (kept > 0) Log.Info($"pictures: {kept} kept from last time, {pictures.Count - kept} new");
         return tried == 0 || pictures.Count > 0;
+    }
+
+    /// Drops a picture and its marks, by window.
+    void Drop(nint hwnd)
+    {
+        if (markLayers.Remove(hwnd, out var layer))
+        {
+            canvas.RemoveVisual(layer.Container);
+            Dispose(layer);
+        }
+        if (!pictures.Remove(hwnd, out var p)) return;
+        canvas.RemoveVisual(p.Visual);
+        device.Commit(); // out of the tree before its thumbnail goes, as in Remove
+        Dwm.DwmUnregisterThumbnail(p.Thumb);
+        p.Visual.Dispose();
     }
 
     public bool Add(CanvasWindow w)
@@ -284,7 +328,7 @@ sealed class SharedVisualPictures : IPictures
         var v = new IDCompositionVisual2(visual);
         v.SetOffsetX((float)w.Frame.X);
         v.SetOffsetY((float)w.Frame.Y);
-        return new Picture(v, thumb);
+        return new Picture(v, thumb, PictureSize(w), w.SourceRect);
     }
 
     public void Remove(CanvasWindow w)
@@ -344,14 +388,22 @@ sealed class SharedVisualPictures : IPictures
         desktopPicture = new Picture(v, thumb);
     }
 
+    /// The overlay is down. The pictures stay, with nothing to show them, for next time (see Attach);
+    /// so do the titles, whose surfaces are drawn again only when the text changes.
     public void Detach()
     {
         SetDesktop(null);
-        canvas.RemoveAllVisuals();
         titles.RemoveAllVisuals();
         accent.Set([]);
         marqueeFill.Set([]);
         guides.Set([]);
+        device.Commit();
+    }
+
+    /// Every picture gone (Dispose).
+    void DropAll()
+    {
+        canvas.RemoveAllVisuals();
         device.Commit();
         foreach (var p in pictures.Values)
         {
@@ -361,7 +413,6 @@ sealed class SharedVisualPictures : IPictures
         pictures.Clear();
         foreach (var layer in markLayers.Values) Dispose(layer);
         markLayers.Clear();
-        // Titles are kept: their surfaces are drawn again only when the text changes.
     }
 
     /// One transform for the whole canvas; nothing else changes as the camera moves.
@@ -1215,6 +1266,8 @@ sealed class SharedVisualPictures : IPictures
     public void Dispose()
     {
         Detach();
+        DropAll();
+        device.Commit();
         foreach (var t in titleVisuals.Values) Dispose(t);
         titleVisuals.Clear();
         foreach (var t in groupTitles.Values) Dispose(t);
