@@ -531,10 +531,15 @@ sealed class SharedVisualPictures : IPictures
         }
     }
 
+    /// The fade from light to solid in this many steps (see SetGroups).
+    const int SoliditySteps = 32;
+
     /// Each group's tinted box and border, its name and delete button; the New Group button.
     /// `solidity`, 0 to 1: how strong the tint and border are (see Canvas.GroupsTakeClicks).
     public void SetGroups(IReadOnlyList<GroupDrawing> groups, RectD? newGroupButton, string buttonText, double scale, double solidity)
     {
+        // In steps, so a fade goes through the same few colours each time, which Strips keeps.
+        solidity = Math.Round(solidity * SoliditySteps) / SoliditySteps;
         double thin = Math.Max(1, Math.Round(scale * (1 + solidity)));
         groupLabels.RemoveAllVisuals();
         if (groups.Count > 0 && (trashSurface == null || trashScale != scale)) DrawTrash(groups[0].Trash.H, scale);
@@ -1201,11 +1206,18 @@ sealed class SharedVisualPictures : IPictures
         readonly SharedVisualPictures owner;
         readonly IDCompositionVisual2 parent;
         readonly IDCompositionVisual2 container;
-        readonly IDCompositionSurface colour;
+        IDCompositionSurface colour;
         public IDCompositionSurface Colour => colour;
         readonly List<IDCompositionVisual2> pool = new();
 
         (float r, float g, float b, float a) painted;
+        /// A surface for each colour these have been: going back to one is a change of content, not a
+        /// drawing. A group's box takes a few dozen on its way from light to solid (see SetGroups), and
+        /// drawing one every frame was GPU work the compositor waited on.
+        readonly Dictionary<(float r, float g, float b, float a), IDCompositionSurface> surfaces = new();
+        /// More than this and all but the current go (dragging on the colour wheel makes a new colour
+        /// at every move).
+        const int MostSurfaces = 96;
 
         /// `parent`: where they go in the visual tree. Otherwise on top of what's there so far.
         public Strips(SharedVisualPictures owner, float r, float g, float b, float a = 1f, IDCompositionVisual2? parent = null)
@@ -1214,25 +1226,43 @@ sealed class SharedVisualPictures : IPictures
             this.parent = parent ?? owner.root;
             owner.device.CreateVisual(out container);
             this.parent.AddVisual(container, false, null);
-            owner.device.CreateSurface(1, 1, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out colour);
-            Paint(r, g, b, a);
+            painted = (r, g, b, a);
+            colour = Paint(r, g, b, a);
+            surfaces[painted] = colour;
         }
 
-        /// Paints the rectangles this colour, if that's a change.
+        /// The rectangles in this colour, if that's a change.
         public void SetColour(float r, float g, float b, float a)
         {
-            if ((r, g, b, a) != painted) Paint(r, g, b, a);
+            var key = (r, g, b, a);
+            if (key == painted) return;
+            if (!surfaces.TryGetValue(key, out var surface))
+            {
+                if (surfaces.Count >= MostSurfaces)
+                {
+                    foreach (var (k, old) in surfaces.Where(e => e.Key != painted).ToList())
+                    {
+                        old.Dispose();
+                        surfaces.Remove(k);
+                    }
+                }
+                surfaces[key] = surface = Paint(r, g, b, a);
+            }
+            painted = key;
+            colour = surface;
+            foreach (var v in pool) v.SetContent(colour);
         }
 
-        void Paint(float r, float g, float b, float a)
+        IDCompositionSurface Paint(float r, float g, float b, float a)
         {
-            painted = (r, g, b, a);
+            owner.device.CreateSurface(1, 1, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
             // ImmediateContext is cached by Vortice: not ours to dispose.
-            using (var tex = colour.BeginDraw<ID3D11Texture2D>(null, out Vortice.Mathematics.Int2 offset))
+            using (var tex = surface.BeginDraw<ID3D11Texture2D>(null, out Vortice.Mathematics.Int2 offset))
             using (var rtv = owner.d3d.CreateRenderTargetView(tex, null))
             using (var context1 = owner.d3d.ImmediateContext.QueryInterface<ID3D11DeviceContext1>())
                 context1.ClearView(rtv, new Color4(r * a, g * a, b * a, a), new[] { new Vortice.RawRect(offset.X, offset.Y, offset.X + 1, offset.Y + 1) });
-            colour.EndDraw();
+            surface.EndDraw();
+            return surface;
         }
 
         public void Set(IReadOnlyList<RectD> rects)
@@ -1259,7 +1289,7 @@ sealed class SharedVisualPictures : IPictures
             container.RemoveAllVisuals();
             foreach (var v in pool) v.Dispose();
             container.Dispose();
-            colour.Dispose();
+            foreach (var surface in surfaces.Values) surface.Dispose();
         }
     }
 

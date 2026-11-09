@@ -40,6 +40,7 @@ sealed partial class Canvas
     int liftedSinceSave;                          // lifted, with their originals not yet saved
     (double x, double y, double scale)? liftCamera; // the camera at the last frame: lifts wait for it to be still
     double liftCredit = 1;                        // the share of a lift built up (MoveWait.LiftsPerFrame)
+    bool minimapUp;                               // the minimap is showing (Redraw)
     bool shortcutKey; // the last key pressed was a shortcut, so the character it makes isn't typed
     bool paused;   // windows put back; the canvas ignores events and the hotkey until resumed
     bool pendingSync; // windows came or went mid-glide: sync once it's handed back
@@ -3168,7 +3169,13 @@ sealed partial class Canvas
         pictures.SetColourWheel(show ? colourWheel : null, k);
         probe?.Mark("groups");
         var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
-        pictures.SetMinimap(map, k);
+        // While the camera animates the minimap keeps what it showed: drawing it every frame was GPU
+        // work the compositor waited on, and a frame came late. It catches up when the camera stops.
+        if (animation == null || map == null || !minimapUp)
+        {
+            pictures.SetMinimap(map, k);
+            minimapUp = map != null;
+        }
         probe?.Mark("minimap");
         if (show) desktopsPanel.Refresh();
         pictures.SetDesktops(map is MinimapDrawing m ? desktopsPanel.Update(m.Panel, hoveredDesktop, k, m.Dark) : null, k);
