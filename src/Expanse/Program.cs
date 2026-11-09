@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Expanse;
 using Expanse.Native;
 using static Expanse.Native.User32;
@@ -86,14 +87,18 @@ while (true)
 {
     if (canvas.IsAnimating)
     {
+        long messages = Stopwatch.GetTimestamp();
         while (PeekMessage(out var m, 0, 0, 0, PM_REMOVE))
         {
             if (m.message == WM_QUIT) return 0;
             TranslateMessage(ref m);
             DispatchMessage(ref m);
         }
+        canvas.MessagesMs = Stopwatch.GetElapsedTime(messages).TotalMilliseconds;
         canvas.Tick();
+        long flush = Stopwatch.GetTimestamp();
         if (canvas.IsAnimating) Dwm.DwmFlush();
+        canvas.FlushMs = Stopwatch.GetElapsedTime(flush).TotalMilliseconds;
     }
     else
     {

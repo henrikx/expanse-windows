@@ -141,6 +141,28 @@ sealed partial class Canvas
     Bench? bench;
     string lastAnimation = "", lastFocus = "", lastOverlayFocus = "";
 
+    /// Where a frame's time goes, part by part, for the log: a frame's work is timed while an
+    /// animation runs, and the message loop says how long it waited for DWM and handled messages.
+    sealed class FrameProbe
+    {
+        readonly List<(string part, double ms)> parts = new();
+        long at = Stopwatch.GetTimestamp();
+
+        public void Mark(string part)
+        {
+            long now = Stopwatch.GetTimestamp();
+            parts.Add((part, Stopwatch.GetElapsedTime(at, now).TotalMilliseconds));
+            at = now;
+        }
+
+        public override string ToString() => string.Join(", ", parts.Where(p => p.ms >= 0.05).Select(p => $"{p.part} {p.ms:0.0}"));
+    }
+
+    FrameProbe? probe;          // the frame being timed, while an animation runs
+    string lastFrameWork = "";  // the last timed frame's parts
+    /// Set by the message loop: how long it last waited for DWM to compose, and handled messages.
+    public double FlushMs, MessagesMs;
+
     sealed class Animation
     {
         public Camera From, To;
@@ -154,6 +176,10 @@ sealed partial class Canvas
         public int Frames;
         public long FirstFrame, LastFrame;
         public double MaxGap, LayoutTotal;
+        /// What the longest gap between frames went on (see FrameProbe).
+        public string? Slowest;
+        /// Garbage collections so far when it started, of each generation.
+        public readonly int[] Collections = [GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)];
         /// Windows moving on the canvas at the same time (Tidy Up).
         public List<(CanvasWindow w, RectD from, RectD to)>? Moves;
     }
@@ -2063,8 +2089,10 @@ sealed partial class Canvas
             Log.Info("compositor restarting: not zooming out yet");
             return;
         }
+        var rising = new FrameProbe();
         ReadScreen();
         if (sync) Sync();
+        rising.Mark("sync");
         previousForeground = GetForegroundWindow();
         stackBars?.Hide();
         active = true;
@@ -2077,6 +2105,7 @@ sealed partial class Canvas
         camera.Scale = 1;
         liveOrigin = camera.Origin;
         SettleGroups(); // apps may have moved or grown at 100%
+        rising.Mark("groups");
         if (pictures.Lost || picturesStale)
         {
             picturesStale = false;
@@ -2090,10 +2119,14 @@ sealed partial class Canvas
             pictures.Attach(Stack());
         }
         pictures.SetDesktop(settings.Wallpaper ? monitor : null);
+        rising.Mark("pictures");
         Relayout();
+        rising.Mark("draw");
         pictures.Flush();
+        rising.Mark("composed");
         overlay.Show(monitor, activate: zoomOut);
         SetTimer(overlay.Hwnd, DialogTimer, 500, 0);
+        rising.Mark("overlay");
         // Now it covers them. A glide lifts what it passes over, once it knows where it's going (Animate).
         if (zoomOut)
         {
@@ -2103,7 +2136,8 @@ sealed partial class Canvas
         if (zoomOut)
         {
             lastOverlayFocus = Focus(overlay.Hwnd);
-            Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}");
+            rising.Mark("focus");
+            Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]");
             returnCamera = camera;
             if (!overview) { HoverAtCursor(); return; }
             // The pointer may already be over a window, with no move to tell us.
@@ -2708,6 +2742,9 @@ sealed partial class Canvas
         else
         {
             double gap = Stopwatch.GetElapsedTime(a.LastFrame, now).TotalMilliseconds;
+            // The gap is the last frame's work, then waiting for DWM, then the messages since.
+            if (gap > a.MaxGap)
+                a.Slowest = $"frame {a.Frames}: {gap:0.0}ms = work [{lastFrameWork}], DWM wait {FlushMs:0.0}, messages {MessagesMs:0.0}";
             a.MaxGap = Math.Max(a.MaxGap, gap);
             bench?.Gaps.Add(gap);
         }
@@ -2717,21 +2754,32 @@ sealed partial class Canvas
         double e = 1 - Math.Pow(1 - t, 3); // ease-out cubic
         camera = t >= 1 ? a.To : Camera.Between(a.From, a.To, e, a.Anchor ?? new Vec(ViewSize.X / 2, ViewSize.Y / 2));
         long l0 = Stopwatch.GetTimestamp();
+        probe = new FrameProbe();
         if (a.Moves != null)
+        {
             foreach (var (w, from, to) in a.Moves)
             {
                 w.Frame = t >= 1 ? to : new RectD(Lerp(from.X, to.X, e), Lerp(from.Y, to.Y, e), to.W, to.H);
                 PictureMoved(w);
             }
+            probe.Mark("moves");
+        }
         Relayout();
+        lastFrameWork = probe.ToString();
+        probe = null;
         double layout = Ms(l0);
         a.LayoutTotal += layout;
         bench?.Layouts.Add(layout);
         if (t < 1) return;
 
         lastAnimation = $"{a.Frames} frames in {Ms(a.Start):0}ms, first after {Stopwatch.GetElapsedTime(a.Start, a.FirstFrame).TotalMilliseconds:0}ms, " +
-                        $"max gap {a.MaxGap:0}ms, layout {a.LayoutTotal / a.Frames:0.00}ms/frame";
-        if (bench == null) Log.Info($"animation: {lastAnimation}");
+                        $"max gap {a.MaxGap:0}ms, layout {a.LayoutTotal / a.Frames:0.00}ms/frame, " +
+                        $"GCs {GC.CollectionCount(0) - a.Collections[0]}/{GC.CollectionCount(1) - a.Collections[1]}/{GC.CollectionCount(2) - a.Collections[2]}";
+        if (bench == null)
+        {
+            Log.Info($"animation: {lastAnimation}");
+            if (a.Slowest != null) Log.Info($"animation: slowest {a.Slowest}");
+        }
         animation = null;
         a.Completion?.Invoke();
         if (animation == null)
@@ -3092,7 +3140,9 @@ sealed partial class Canvas
     void Relayout()
     {
         if (liftAhead && active && !gliding) Lift(Layout.LiftArea(camera, View));
+        probe?.Mark("lift queue");
         pictures.Layout(Stack(), camera, View);
+        probe?.Mark("camera");
         Redraw();
     }
 
@@ -3109,17 +3159,24 @@ sealed partial class Canvas
         bool show = active && !gliding;
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
+        probe?.Mark("titles");
         pictures.SetMarks(show ? CurrentMarks(k) : Marks.None, k);
+        probe?.Mark("marks");
         // First: closing the wheel puts the group's colour back.
         var colourWheel = ColourWheelNow(k);
         pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k, groupSolidity);
         pictures.SetColourWheel(show ? colourWheel : null, k);
+        probe?.Mark("groups");
         var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
         pictures.SetMinimap(map, k);
+        probe?.Mark("minimap");
         if (show) desktopsPanel.Refresh();
         pictures.SetDesktops(map is MinimapDrawing m ? desktopsPanel.Update(m.Panel, hoveredDesktop, k, m.Dark) : null, k);
+        probe?.Mark("desktops");
         pictures.SetTreePanel(settings.GroupsPanel && map is MinimapDrawing panelTheme ? TreeDrawingNow(k, panelTheme.Dark) : null, k);
+        probe?.Mark("tree");
         pictures.Present();
+        probe?.Mark("commit");
     }
 
     MinimapDrawing MinimapNow(double k) =>
