@@ -2138,6 +2138,7 @@ sealed partial class Canvas
         {
             lastOverlayFocus = Focus(overlay.Hwnd);
             rising.Mark("focus");
+            rising.Mark($"settle {Settle()}f");
             Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]");
             returnCamera = camera;
             if (!overview) { HoverAtCursor(); return; }
@@ -2149,6 +2150,57 @@ sealed partial class Canvas
                 if (pendingRestore is SavedLayout restore) { pendingRestore = null; RestoreLayout(restore); }
             });
         }
+    }
+
+    /// The most frames Settle waits for DWM to come back up to speed, after the first.
+    const int SettleFrames = 3;
+    /// The last frames' lengths, in animations and Settle: most come on time, so their median is
+    /// how long a frame takes when DWM keeps up (the shortest isn't: a frame right after a late one
+    /// comes early).
+    readonly Queue<double> recentFrames = new();
+    const int RecentFrames = 64;
+
+    /// How long a frame takes when DWM keeps up: a 60 Hz screen's until enough frames are seen.
+    double FramePeriodMs
+    {
+        get
+        {
+            if (recentFrames.Count < 8) return 1000.0 / 60;
+            var sorted = recentFrames.Order().ToList();
+            return sorted[sorted.Count / 2];
+        }
+    }
+
+    /// A frame of `ms`, between DwmFlush returns or animation frames. Under 4 ms it returned early
+    /// (composition paused): no screen's frame is that short.
+    void FrameTook(double ms)
+    {
+        if (ms < 4) return;
+        recentFrames.Enqueue(ms);
+        while (recentFrames.Count > RecentFrames) recentFrames.Dequeue();
+    }
+
+    /// The overlay coming up and the focus moving keep DWM busy for a frame or more, and longer
+    /// after a while away from the canvas (the GPU and the CPU slowed down, things paged out). It
+    /// catches up with the view still, rather than in the first frames of the zoom out (the
+    /// overview's, or a wheel turn's from 100%), where it showed as a stutter: a frame to get to
+    /// one's start, then frames until one takes no longer than usual, up to SettleFrames.
+    /// The frames waited.
+    int Settle()
+    {
+        Dwm.DwmFlush();
+        int frames = 1;
+        while (frames <= SettleFrames)
+        {
+            long t = Stopwatch.GetTimestamp();
+            Dwm.DwmFlush();
+            frames++;
+            double ms = Ms(t);
+            bool onTime = ms <= FramePeriodMs * 1.3;
+            FrameTook(ms);
+            if (onTime) break;
+        }
+        return frames;
     }
 
     bool compositorUp = true, picturesStale;
@@ -2743,6 +2795,7 @@ sealed partial class Canvas
         else
         {
             double gap = Stopwatch.GetElapsedTime(a.LastFrame, now).TotalMilliseconds;
+            FrameTook(gap);
             // The gap is the last frame's work, then waiting for DWM, then the messages since.
             if (gap > a.MaxGap)
                 a.Slowest = $"frame {a.Frames}: {gap:0.0}ms = work [{lastFrameWork}], DWM wait {FlushMs:0.0}, messages {MessagesMs:0.0}";
