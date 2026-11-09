@@ -14,11 +14,7 @@ sealed class Wallpaper : IDisposable
 
     public void Draw(nint hdc, int w, int h, bool enabled)
     {
-        if (enabled)
-        {
-            string? current = CurrentPath();
-            if (dc == 0 || w != width || h != height || current != path) Load(current, w, h);
-        }
+        if (enabled) Prepare(w, h);
         if (enabled && dc != 0) Gdi32.BitBlt(hdc, 0, 0, w, h, dc, 0, 0, Gdi32.SRCCOPY);
         else
         {
@@ -27,6 +23,14 @@ sealed class Wallpaper : IDisposable
             User32.FillRect(hdc, ref r, brush);
             Gdi32.DeleteObject(brush);
         }
+    }
+
+    /// Loads the desktop picture at `w` x `h`, unless it's ready: loading and scaling it can take a
+    /// few hundred milliseconds, which done on the first Draw held up the first zoom out.
+    public void Prepare(int w, int h)
+    {
+        string? current = CurrentPath();
+        if (dc == 0 || w != width || h != height || current != path) Load(current, w, h);
     }
 
     /// The desktop picture at `w` x `h` (filled, as Settings' "Fill"), as premultiplied BGRA rows:

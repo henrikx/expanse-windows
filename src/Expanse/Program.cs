@@ -80,6 +80,7 @@ new CommandServer(overlay.Hwnd).Start();
 Links.Register();
 canvas.Start();
 canvas.WelcomeIfNew();
+canvas.WarmUp();
 
 // The message loop. While the camera animates it runs a frame at a time: handle whatever
 // input is waiting, move the pictures, then wait for DWM to compose (DwmFlush).

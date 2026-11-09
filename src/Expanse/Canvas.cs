@@ -3210,7 +3210,7 @@ sealed partial class Canvas
             pictures.Present();
             return;
         }
-        bool show = active && !gliding;
+        bool show = (active && !gliding) || warming;
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         probe?.Mark("titles");
@@ -3735,6 +3735,26 @@ sealed partial class Canvas
     }
 
     /// First launch: Welcome & Shortcuts opens by itself.
+    bool warming; // WarmUp: drawing everything once, with the overlay down
+
+    /// The first zoom out after starting took most of a second before anything moved: loading and
+    /// scaling the desktop picture (the backdrop and the Desktops panel's tiles), Direct2D's and
+    /// DirectWrite's first drawing, and compiling the code that does it. Done once now, with the
+    /// overlay down so none of it shows.
+    public void WarmUp()
+    {
+        var t0 = Stopwatch.GetTimestamp();
+        if (settings.Wallpaper) wallpaper.Prepare(monitor.Width, monitor.Height);
+        if (pictures.DrawsDecorations)
+        {
+            warming = true;
+            try { Redraw(); }
+            finally { warming = false; }
+            Redraw(); // and gone again
+        }
+        Log.Info($"warmed up in {Ms(t0):0}ms");
+    }
+
     public void WelcomeIfNew()
     {
         if (!settings.WelcomeShown) ShowWelcome();
