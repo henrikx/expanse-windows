@@ -2604,11 +2604,21 @@ sealed partial class Canvas
     Camera FitCamera(double maxScale)
     {
         if (windows.Count == 0) return Camera.Centered(camera.Center(ViewSize), 0.5, ViewSize);
-        var bounds = windows.Skip(1).Aggregate(windows[0].Frame, (b, w) => b.Union(w.Frame));
-        bounds = groups.Aggregate(bounds, (b, g) => b.Union(g.Box)).Inset(-80, -80);
+        var apps = windows.Skip(1).Aggregate(windows[0].Frame, (b, w) => b.Union(w.Frame));
         // Beside the groups panel, not under it.
         double reserved = settings.GroupsPanel ? (GroupTree.Width + GroupTree.Margin) * UiScale : 0;
-        double s = Math.Max(Math.Min(Math.Min((ViewSize.X - reserved) / bounds.W, ViewSize.Y / bounds.H), maxScale), Camera.MinScale);
+        double k = UiScale;
+        double Fit(RectD b) => Math.Max(Math.Min(Math.Min((ViewSize.X - reserved) / b.W, ViewSize.Y / b.H), maxScale), Camera.MinScale);
+        // The groups' labels too: they're the same size on screen at any zoom, so how much canvas they
+        // take depends on the zoom being worked out. Further out, they take more: a few rounds settle it.
+        RectD Bounds(double scale) => groups.Aggregate(apps, (b, g) => b.Union(Groups.WithLabel(g.Box, TextWidth(g.Name, k), k, scale))).Inset(-80, -80);
+        double s = Fit(groups.Aggregate(apps, (b, g) => b.Union(g.Box)).Inset(-80, -80));
+        var bounds = Bounds(s);
+        for (int round = 0; round < 4 && groups.Count > 0; round++)
+        {
+            s = Fit(bounds);
+            bounds = Bounds(s);
+        }
         return Camera.Centered(new Vec(bounds.MidX + reserved / 2 / s, bounds.MidY), s, ViewSize);
     }
 

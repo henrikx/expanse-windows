@@ -372,6 +372,15 @@ public static class Groups
         return (swatch, label, new RectD(label.Right + Math.Round(4 * k), y, h, h));
     }
 
+    /// `box` (in canvas space) with what goes above it, seen at zoom `scale`: the label row is the same
+    /// size on screen at any zoom, so the further out, the more of the canvas it takes up.
+    public static RectD WithLabel(RectD box, double textWidth, double k, double scale)
+    {
+        var (swatch, _, trash) = LabelRects(new RectD(box.X * scale, box.Y * scale, box.W * scale, box.H * scale), textWidth, k);
+        var row = swatch.Union(trash);
+        return box.Union(new RectD(row.X / scale, row.Y / scale, row.W / scale, row.H / scale));
+    }
+
     /// The New Group button: where the label of the group it would make goes (`viewBox` is that
     /// group's box, in view space), but always on screen, to be clicked.
     public static RectD ButtonRect(RectD viewBox, double textWidth, RectD view, double k)

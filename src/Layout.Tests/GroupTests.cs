@@ -187,6 +187,11 @@ static class GroupTests
         Is("label: follows the display's scale", bigLabel.H == 2 * label.H);
         var (_, longLabel, _) = Groups.LabelRects(new(0, 200, 500, 300), 5000, 1);
         Is("label: a long name is capped", longLabel.W <= Groups.LabelMaxWidth);
+        var labelled = Groups.WithLabel(new(100, 200, 500, 300), 80, 1, 1);
+        Same("with label: at 100%, the box and the row above it", new(100, trash.Y, 500, 200 + 300 - trash.Y), labelled);
+        var far = Groups.WithLabel(new(100, 200, 50, 300), 80, 1, 0.1);
+        Is("with label: zoomed out, the row takes ten times the canvas", Math.Abs(far.Y - (200 - (200 - trash.Y) * 10)) < 1e-6 && Math.Abs(far.Right - (100 + (trash.Right - 100) * 10)) < 1e-6);
+        Is("with label: and still holds the box", far.Contains(new RectD(100, 200, 50, 300)));
         var view = new RectD(0, 0, 1000, 800);
         Same("button: where the group's label will be", label, Groups.ButtonRect(new(100, 200, 500, 300), 80, view, 1));
         Same("button: and at the display's scale", bigLabel, Groups.ButtonRect(new(100, 200, 500, 300), 80, view, 2));
