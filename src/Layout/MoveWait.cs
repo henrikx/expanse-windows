@@ -19,6 +19,25 @@ public static class MoveWait
         Math.Clamp(frame.X, monitor.X, Math.Max(monitor.X, monitor.Right - frame.W)),
         Math.Clamp(frame.Y, monitor.Y, Math.Max(monitor.Y, monitor.Bottom - frame.H)));
 
+    /// How many windows zooming out lifts in a frame, once the camera is still. Every lifted window
+    /// repaints all of itself at once, which holds up the compositor: while the camera moves even one
+    /// a frame shows as a stutter, so none are lifted then, and a window not lifted yet shows its old
+    /// picture until the camera stops. Less than one also works: the shares add up frame by frame.
+    public const double LiftsPerFrame = 1;
+
+    /// The order to lift windows in (their indexes, by canvas frames): those in `seen` first, then
+    /// the nearest to it, so what's about to come into view has repainted when it does.
+    public static int[] NearestFirst(IReadOnlyList<RectD> frames, RectD seen) =>
+        Enumerable.Range(0, frames.Count).OrderBy(i => GapBetween(frames[i], seen))
+            .ThenBy(i => frames[i].Center.DistanceTo(seen.Center)).ToArray();
+
+    static double GapBetween(RectD a, RectD b)
+    {
+        double dx = Math.Max(0, Math.Max(b.X - a.Right, a.X - b.Right));
+        double dy = Math.Max(0, Math.Max(b.Y - a.Bottom, a.Y - b.Bottom));
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
     /// The order to send windows their moves (their indexes, by frames in view space): those in view
     /// first, otherwise as they come. An app handles its windows' moves one at a time, so nothing you
     /// can see should wait behind windows you can't.

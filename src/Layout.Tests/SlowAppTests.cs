@@ -152,6 +152,13 @@ static class SlowAppTests
             pulled.ZoomOutOnto(1 / 1.2, at100.ToCanvas(corner), 0.35, new Vec(view.W / 2, view.H / 2));
             Is($"and a turn out from the pointer at {corner}", ahead100.Contains(pulled.ToCanvas(view)), $"{ahead100} {pulled.ToCanvas(view)}");
         }
+        // A few a frame, nearest the view first.
+        var seen = new RectD(0, 0, 1000, 800);
+        RectD[] around = [new(3000, 0, 100, 100), new(1100, 0, 100, 100), new(900, 700, 300, 300), new(-2000, 0, 100, 100), new(400, 300, 100, 100)];
+        Is("lift order: in view, the middle first, then the nearest outside",
+            MoveWait.NearestFirst(around, seen).SequenceEqual([4, 2, 1, 3, 0]), string.Join(",", MoveWait.NearestFirst(around, seen)));
+        Is("lift order: nothing to order", MoveWait.NearestFirst([], seen).Length == 0);
+
         var nearby = at100.ToCanvas(view);
         Is("a window just outside the view is lifted", Layout.LiftedByGlide(new RectD(nearby.Right + 100, nearby.Y, 500, 500), ahead100));
         Is("one far away isn't, at a small zoom", !Layout.LiftedByGlide(new RectD(nearby.Right + 5000, nearby.Y, 500, 500), ahead100));

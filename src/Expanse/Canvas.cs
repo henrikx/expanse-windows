@@ -36,6 +36,10 @@ sealed partial class Canvas
     bool gliding;  // up only to glide/dive into a window; input waits until it's handed back
     bool liftAhead; // zoomed out, with the overlay covering the screen: windows lift as the view nears them
     readonly HashSet<nint> liftChecked = new(); // the windows Lift has seen since the overlay rose
+    readonly List<CanvasWindow> liftQueue = new(); // seen by Lift, lifted once the camera is still (Tick)
+    int liftedSinceSave;                          // lifted, with their originals not yet saved
+    (double x, double y, double scale)? liftCamera; // the camera at the last frame: lifts wait for it to be still
+    double liftCredit = 1;                        // the share of a lift built up (MoveWait.LiftsPerFrame)
     bool shortcutKey; // the last key pressed was a shortcut, so the character it makes isn't typed
     bool paused;   // windows put back; the canvas ignores events and the hotkey until resumed
     bool pendingSync; // windows came or went mid-glide: sync once it's handed back
@@ -175,7 +179,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing;
+    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -2067,6 +2071,8 @@ sealed partial class Canvas
         gliding = !zoomOut;
         liftAhead = false;
         liftChecked.Clear();
+        liftQueue.Clear();
+        liftedSinceSave = 0;
         hovered = null;
         camera.Scale = 1;
         liveOrigin = camera.Origin;
@@ -2148,27 +2154,57 @@ sealed partial class Canvas
     /// has to leave the screen again at the end, and a slow app (Firefox, with many windows) may not
     /// manage that in time, so it would flash as the overlay drops. Zooming out, more come as the
     /// view reaches them, a little ahead so they've time to repaint (Layout.LiftArea).
-    void Lift(RectD area)
+    /// Zooming out, they queue and go LiftsPerFrame a frame once the camera stops (Tick); a glide
+    /// (`now`) lifts them all at once, as it passes over them straight away.
+    void Lift(RectD area, bool now = false)
     {
-        int lifted = 0;
-        bool newOriginals = false;
         foreach (var w in Stack())
+            if (Layout.LiftedByGlide(w.Frame, area) && liftChecked.Add(w.Hwnd)) liftQueue.Add(w);
+        if (!now) return;
+        // Queued zooming out but not on the glide's way: lifted now, they'd only flash as the overlay drops.
+        liftQueue.RemoveAll(w => !Layout.LiftedByGlide(w.Frame, area));
+        LiftSome(int.MaxValue);
+    }
+
+    /// Lifts up to `most` of the queued windows, nearest the view first. Windows already on the
+    /// screen don't count. The originals are saved once the queue is empty and the camera still.
+    void LiftSome(int most)
+    {
+        if (liftQueue.Count > 0)
         {
-            if (!Layout.LiftedByGlide(w.Frame, area) || !liftChecked.Add(w.Hwnd)) continue;
-            GetWindowRect(w.Hwnd, out var r);
-            int fx = r.Left + w.Insets.Left, fy = r.Top + w.Insets.Top;
-            int fw = r.Width - w.Insets.Left - w.Insets.Right, fh = r.Height - w.Insets.Top - w.Insets.Bottom;
-            var spot = MoveWait.LiftSpot(new RectD(fx, fy, fw, fh), monitor.ToRectD());
-            int x = (int)spot.X, y = (int)spot.Y;
-            if (x == fx && y == fy) continue;
-            if (w.Original == null) { w.Original = r; newOriginals = true; }
-            w.Moves.Sent(fx, fy, x, y, Environment.TickCount64);
-            SetWindowPos(w.Hwnd, 0, x - w.Insets.Left, y - w.Insets.Top, 0, 0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-            lifted++;
+            var order = MoveWait.NearestFirst(liftQueue.Select(w => w.Frame).ToList(), camera.ToCanvas(View));
+            var done = new HashSet<CanvasWindow>();
+            int lifted = 0;
+            foreach (int i in order)
+            {
+                if (lifted >= most) break;
+                var w = liftQueue[i];
+                done.Add(w);
+                if (LiftOne(w)) lifted++;
+            }
+            liftQueue.RemoveAll(done.Contains);
+            liftedSinceSave += lifted;
         }
-        if (newOriginals) Originals.Save(windows);
-        if (lifted > 0) Log.Info($"lifted {lifted} off-screen windows under the overlay");
+        if (liftQueue.Count > 0 || animation != null || liftedSinceSave == 0) return;
+        Log.Info($"lifted {liftedSinceSave} off-screen windows under the overlay");
+        Originals.Save(windows);
+        liftedSinceSave = 0;
+    }
+
+    /// Brings `w` onto the screen, under the overlay, unless it's already there (or gone).
+    bool LiftOne(CanvasWindow w)
+    {
+        if (!GetWindowRect(w.Hwnd, out var r)) return false;
+        int fx = r.Left + w.Insets.Left, fy = r.Top + w.Insets.Top;
+        int fw = r.Width - w.Insets.Left - w.Insets.Right, fh = r.Height - w.Insets.Top - w.Insets.Bottom;
+        var spot = MoveWait.LiftSpot(new RectD(fx, fy, fw, fh), monitor.ToRectD());
+        int x = (int)spot.X, y = (int)spot.Y;
+        if (x == fx && y == fy) return false;
+        w.Original ??= r;
+        w.Moves.Sent(fx, fy, x, y, Environment.TickCount64);
+        SetWindowPos(w.Hwnd, 0, x - w.Insets.Left, y - w.Insets.Top, 0, 0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        return true;
     }
 
     /// Back to 100%: on `focus` (centred in the work area), or where you were.
@@ -2222,6 +2258,8 @@ sealed partial class Canvas
     void HandBack(CanvasWindow? focus)
     {
         var t0 = Stopwatch.GetTimestamp();
+        liftQueue.Clear(); // Commit saves the originals of any lifted
+        liftedSinceSave = 0;
         int moved = Commit();
         int waited = WaitForMoves();
         var target = focus ?? CanvasWindowOf(previousForeground)
@@ -2627,7 +2665,7 @@ sealed partial class Canvas
     void Animate(Camera to, double duration, Action? completion = null, List<(CanvasWindow, RectD, RectD)>? moves = null)
     {
         // The camera goes in a straight line, so this holds all a glide or dive will show.
-        if (gliding) Lift(Layout.GlideArea(camera, to, View));
+        if (gliding) Lift(Layout.GlideArea(camera, to, View), now: true);
         else if (liftAhead) Lift(Layout.LiftArea(to, View));
         animation = new Animation
         {
@@ -2643,6 +2681,22 @@ sealed partial class Canvas
     {
         bool fading = GroupSolidityMoving;
         if (fading) StepGroupSolidity();
+        if (active)
+        {
+            // Only with the camera still since the last frame: a glide, a wheel turn and panning
+            // (which isn't an animation) all hold the lifts back.
+            var still = (camera.Origin.X, camera.Origin.Y, camera.Scale);
+            if (animation == null && still == liftCamera)
+            {
+                // Lifts add up frame by frame: with nothing waiting, the next one goes straight away.
+                liftCredit = liftQueue.Count == 0 ? 1 : liftCredit + MoveWait.LiftsPerFrame;
+                int lifts = (int)liftCredit;
+                liftCredit -= lifts;
+                LiftSome(lifts);
+            }
+            liftCamera = still;
+        }
+        else liftQueue.Clear();
         var a = animation;
         if (a == null)
         {
@@ -2682,6 +2736,7 @@ sealed partial class Canvas
         a.Completion?.Invoke();
         if (animation == null)
         {
+            if (active) LiftSome(0); // still now: the originals of what's been lifted are saved
             if (active && !gliding) Redraw();
             CompleteIdleWaiters();
         }
