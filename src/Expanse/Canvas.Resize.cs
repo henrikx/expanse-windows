@@ -13,7 +13,7 @@ sealed partial class Canvas
     /// border can still be grabbed from just inside it.
     (CanvasWindow w, ResizeEdges edges)? WindowEdgeAt(Vec p)
     {
-        if (GroupsTakeClicks || OverPanel(p) || OverStackBar(p)) return null;
+        if (GroupsTakeClicks || OverPanel(p) || OverStackBar(p) || GroupLabelAt(p) != null) return null;
         double k = UiScale;
         var over = WindowAt(p);
         if (over != null && CloseShown(over, over, k) && Marks.CloseRect(camera.ToView(over.Frame), k).Contains(p)) return null;

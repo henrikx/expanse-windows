@@ -1448,6 +1448,10 @@ sealed partial class Canvas
             CentreOn(minimap.CanvasPoint(p));
         }
         else if (spaceHeld) drag = new Drag(DragKind.Pan, p);
+        else if (!ctrl && !shift && GroupLabelAt(p) is (CanvasGroup labelled, GroupPart labelPart, ResizeEdges labelEdges))
+        {
+            if (!PressGroup(labelled, labelPart, labelEdges, p)) { Redraw(); return; }
+        }
         else if (FitAt(p) is (CanvasWindow stackFront, List<CanvasWindow> stackMembers))
         {
             FitStack(stackFront, stackMembers);
@@ -3182,7 +3186,7 @@ sealed partial class Canvas
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
         if (TreePanel.Contains(p)) { HoverTree(p); return; }
         LeaveTree();
-        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || OverStackBar(p) ? null : WindowAt(p);
+        var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || OverStackBar(p) || GroupLabelAt(p) != null ? null : WindowAt(p);
         HoverGroup(p, w);
         if (w == hovered) return;
         hovered = w;

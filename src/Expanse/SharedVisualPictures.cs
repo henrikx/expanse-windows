@@ -168,14 +168,15 @@ sealed class SharedVisualPictures : IPictures
         target.SetRoot(root);
         device.CreateVisual(out desktop);
         root.AddVisual(desktop, false, null);
-        // Groups: over the desktop, under the pictures, so a preview is never tinted.
+        // Groups' boxes: over the desktop, under the pictures, so a preview is never tinted.
         device.CreateVisual(out groupBoxLayer);
         root.AddVisual(groupBoxLayer, false, null);
-        device.CreateVisual(out groupLabels);
-        root.AddVisual(groupLabels, false, null);
         device.CreateVisual(out canvas);
         canvas.SetBitmapInterpolationMode(BitmapInterpolationMode.Linear);
         root.AddVisual(canvas, false, null);
+        // Their names, colour and delete buttons: over the pictures, so a window can't hide them.
+        device.CreateVisual(out groupLabels);
+        root.AddVisual(groupLabels, false, null);
         device.CreateEffectGroup(out tabFade);
         accent = new Strips(this, 76 / 255f, 154 / 255f, 1f);
         marqueeFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.12f);

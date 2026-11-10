@@ -150,6 +150,12 @@ sealed partial class Canvas
         return null;
     }
 
+    /// A group's name, colour or delete button under `p`. They're drawn over the pictures, so they
+    /// come before the windows; on the GDI backdrop they're under them, so they don't.
+    (CanvasGroup group, GroupPart part, ResizeEdges edges)? GroupLabelAt(Vec p) =>
+        pictures.DrawsDecorations && GroupHitAt(p) is (CanvasGroup g, GroupPart part, ResizeEdges e)
+            && part is GroupPart.Colour or GroupPart.Trash or GroupPart.Label ? (g, part, e) : null;
+
     /// The group a click on this window goes to instead of the window, if any.
     CanvasGroup? GroupTakingClick(CanvasWindow w) => GroupsTakeClicks ? GroupHolding(w) : null;
 
@@ -233,9 +239,10 @@ sealed partial class Canvas
         if (NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p)) return LoadCursor(0, IDC_HAND);
         if (TreePanel.Contains(p)) return treeHover >= 0 ? LoadCursor(0, IDC_HAND) : 0;
         if (minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p)) return 0;
-        if (WindowEdgeAt(p) is (CanvasWindow, ResizeEdges windowEdges)) return LoadCursor(0, ResizeCursor(windowEdges));
-        if (WindowAt(p) != null) return 0;
-        if (GroupHitAt(p) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
+        var onLabel = GroupLabelAt(p);
+        if (onLabel == null && WindowEdgeAt(p) is (CanvasWindow, ResizeEdges windowEdges)) return LoadCursor(0, ResizeCursor(windowEdges));
+        if (onLabel == null && WindowAt(p) != null) return 0;
+        if ((onLabel ?? GroupHitAt(p)) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
         return part switch
         {
             GroupPart.Trash => LoadCursor(0, IDC_HAND),
@@ -256,6 +263,7 @@ sealed partial class Canvas
     void HoverGroup(Vec p, CanvasWindow? overWindow)
     {
         var over = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) ? null
+            : GroupLabelAt(p) is var (labelled, _, _) ? labelled
             : overWindow != null ? GroupTakingClick(overWindow)
             : GroupHitAt(p) is var (g, _, _) ? g : null;
         if (over == hoveredGroup) return;
