@@ -91,7 +91,7 @@ start it with Windows.
 | Scroll | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
 | Middle-button drag | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
-| Drag a window's edge or corner while zoomed out | Resize it when you let go, or the whole stack if it's in one; its edges snap to other windows. Not larger than the screen, and an app that won't take the size gets as close as it allows. Only above Group Selection Zoom |
+| Drag a window's edge or corner while zoomed out | Resize it when you let go, along with the windows of about the same size if it's in a stack; its edges snap to other windows. Not larger than the screen, and an app that won't take the size gets as close as it allows. Only above Group Selection Zoom |
 | <kbd>Ctrl</kbd> + <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |
 | Just type | Search the groups and apps |
 | <kbd>Esc</kbd> | Back to 100% |

@@ -116,6 +116,14 @@ public static class Stacks
     public static List<WindowStack> ShowingAt100(IReadOnlyList<WindowStack> stacks, int focused, IReadOnlyList<int> groupOf, int focusedGroup) =>
         stacks.Where(s => s.Members.Contains(focused) || (focusedGroup >= 0 && s.Members.Any(m => groupOf[m] == focusedGroup))).ToList();
 
+    /// How far apart two windows' widths, and heights, may be for them to count as the same size.
+    public const double SameSizeSlack = 16;
+
+    /// `a` and `b` are about the same size, as after the fit button: resizing one of a stack's windows
+    /// takes along only those, not ones of other sizes that lie in it.
+    public static bool SameSize(RectD a, RectD b) =>
+        Math.Abs(a.W - b.W) <= SameSizeSlack && Math.Abs(a.H - b.H) <= SameSizeSlack;
+
     /// Enough of `w` lies within `outer`.
     public static bool IsInside(RectD w, RectD outer)
     {

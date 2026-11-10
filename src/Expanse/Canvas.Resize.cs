@@ -3,8 +3,9 @@ using static Expanse.Native.User32;
 namespace Expanse;
 
 /// Dragging a window's border on the zoomed-out canvas. An outline shows where it's going and the
-/// real window changes when you let go, so a slow app can't hold up the drag. In a stack, every
-/// window goes with it. Only above Group Selection Zoom, where a window is big enough to aim at.
+/// real window changes when you let go, so a slow app can't hold up the drag. In a stack, the
+/// windows of about the same size go with it. Only above Group Selection Zoom, where a window is big
+/// enough to aim at.
 sealed partial class Canvas
 {
     /// The window whose border is under `p`, and which of its edges. The fit button, tabs and × come
@@ -39,14 +40,15 @@ sealed partial class Canvas
         SetCursor(LoadCursor(0, ResizeCursor(edges)));
     }
 
-    /// `w` and the rest of its stack, if it's in one.
+    /// `w` and the rest of its stack that's about its size (Stacks.SameSize), if it's in one: those
+    /// of other sizes keep theirs.
     List<CanvasWindow> ResizingWith(CanvasWindow w)
     {
         var open = windows.Where(x => !x.Maximised).ToList();
         int at = open.IndexOf(w);
         var stack = Stacks.Find(open.Select(x => x.Frame).ToList(), open.Select(x => (long)x.Hwnd).ToList())
             .FirstOrDefault(s => s.Members.Contains(at));
-        return stack == null ? [w] : stack.Members.Select(i => open[i]).ToList();
+        return stack == null ? [w] : stack.Members.Select(i => open[i]).Where(x => x == w || Stacks.SameSize(x.Frame, w.Frame)).ToList();
     }
 
     /// Snaps to the other windows as a move does, unless Ctrl is held. The rest of a stack going

@@ -33,6 +33,13 @@ static class StackTests
         Is("exactly the share is inside", Stacks.IsInside(new(0, 0, 100, 100), new(15, 0, 500, 500)));
         Is("just under it isn't", !Stacks.IsInside(new(0, 0, 100, 100), new(15.1, 0, 500, 500)));
         Is("touching isn't inside", !Stacks.IsInside(new(0, 0, 100, 100), new(100, 0, 500, 500)));
+
+        // Which of a stack go along when one is resized
+        Is("the same size goes along", Stacks.SameSize(big, big.Offset(new(16, 16))));
+        Is("within the slack goes along", Stacks.SameSize(big, new(100, 100, 800 + Stacks.SameSizeSlack, 600 - Stacks.SameSizeSlack)));
+        Is("wider than the slack stays", !Stacks.SameSize(big, new(100, 100, 800 + Stacks.SameSizeSlack + 1, 600)));
+        Is("taller than the slack stays", !Stacks.SameSize(big, new(100, 100, 800, 600 + Stacks.SameSizeSlack + 1)));
+        Is("a small window in a big one stays", !Stacks.SameSize(big, small));
         // As a log showed: Firefox is taller than Chrome, so it could never lie wholly inside it.
         RectD chrome = new(-3965, -8125, 2098, 1226), firefox = new(-3766, -8096, 1911, 1288), code = new(-3900, -8000, 1500, 900);
         One("a window taller than the one it's on, mostly within it", [firefox, chrome], 1, [0, 1], 1);
