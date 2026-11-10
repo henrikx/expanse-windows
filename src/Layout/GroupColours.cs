@@ -75,6 +75,25 @@ public static class GroupColours
         return new Tint(Channel(c.R), Channel(c.G), Channel(c.B), lightAlpha + (solidAlpha - lightAlpha) * s);
     }
 
+    // MARK: The groups panel
+
+    /// Behind a group's rows in the groups panel, its header and its apps as one block, over the
+    /// panel: a soft tint of the colour on the light panel, a dim shade of it on the dark one, both
+    /// light enough for the text to stay as it is.
+    public static Tint TreeBlock(GroupColour c, bool dark) => Plain(c, dark ? 0.22f : 0.16f);
+
+    /// Over the block, the row that's hovered, picked or found: the same colour again, stronger.
+    public static Tint TreeHighlight(GroupColour c, bool dark) => Plain(c, dark ? 0.26f : 0.2f);
+
+    static Tint Plain(GroupColour c, float alpha) => new(c.R / 255f, c.G / 255f, c.B / 255f, alpha);
+
+    /// `t` painted over an opaque (`r`, `g`, `b`): for drawing that has no alpha (GDI).
+    public static (byte R, byte G, byte B) Over(Tint t, byte r, byte g, byte b)
+    {
+        static byte Mix(float top, byte under, float a) => (byte)Math.Round(Math.Clamp(top * a + under / 255f * (1 - a), 0, 1) * 255);
+        return (Mix(t.R, r, t.A), Mix(t.G, g, t.A), Mix(t.B, b, t.A));
+    }
+
     // MARK: The wheel
 
     /// The wheel, in view space: centred on `swatch`, the circle it grows out of, but always on screen.

@@ -672,10 +672,31 @@ sealed class SharedVisualPictures : IPictures
             var typed = GroupTree.SearchTextRect(d.Search, k);
             if (!d.Typing) d2d.DrawText(d.Query.Length > 0 ? d.Query : TreeDrawing.Placeholder, plain, Raw(typed.X, typed.Y, typed.Right, typed.Bottom), d.Query.Length > 0 ? ink : muted);
             d2d.PushAxisAlignedClip(Raw(d.List.X, d.List.Y, d.List.Right, d.List.Bottom), AntialiasMode.Aliased);
+            // Each group's rows, its header and apps, as one block of its colour, a little apart from the next.
+            float apart = (float)Math.Round(k);
+            System.Drawing.RectangleF Inset(System.Drawing.RectangleF r) => new(r.X, r.Y + apart, r.Width, r.Height - 2 * apart);
+            ID2D1SolidColorBrush Brush(Tint t) => d2d.CreateSolidColorBrush(new Color4(t.R, t.G, t.B, t.A));
+            for (int i = 0; i < d.Rows.Count;)
+            {
+                int end = i + 1;
+                while (end < d.Rows.Count && d.Rows[end].Group == d.Rows[i].Group) end++;
+                if (d.Rows[i].Colour is GroupColour colour)
+                {
+                    var block = Local(d.Rows[i].Rect with { H = d.Rows[end - 1].Rect.Bottom - d.Rows[i].Rect.Y });
+                    using var tint = Brush(GroupColours.TreeBlock(colour, d.Dark));
+                    d2d.FillRoundedRectangle(new RoundedRectangle(Inset(block), fieldCorner, fieldCorner), tint);
+                }
+                i = end;
+            }
             foreach (var row in d.Rows)
             {
                 var r = row.Rect;
-                if (row.Highlighted) d2d.FillRoundedRectangle(new RoundedRectangle(Local(r), fieldCorner, fieldCorner), mark);
+                if (row.Highlighted && row.Colour is GroupColour own)
+                {
+                    using var stronger = Brush(GroupColours.TreeHighlight(own, d.Dark));
+                    d2d.FillRoundedRectangle(new RoundedRectangle(Inset(Local(r)), fieldCorner, fieldCorner), stronger);
+                }
+                else if (row.Highlighted) d2d.FillRoundedRectangle(new RoundedRectangle(Local(r), fieldCorner, fieldCorner), mark);
                 double x = r.X + row.Depth * GroupTree.Indent * k;
                 if (row.Expandable)
                     d2d.DrawText(row.Expanded ? "\uE70D" : "\uE76C", glyph, Raw(x, r.Y, x + 24 * k, r.Bottom), muted);

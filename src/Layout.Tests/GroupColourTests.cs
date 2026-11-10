@@ -14,6 +14,15 @@ static class GroupColourTests
         Is("packing round-trips", GroupColour.FromPacked(packed.Packed) == packed);
         Is("the blue packs to its hex", GroupColours.Blue.Packed == 0x4C9AFF);
 
+        // --- The groups panel ---
+        var green = new GroupColour(0, 200, 0);
+        Is("a group's rows are its colour", GroupColours.TreeBlock(green, false) is { R: 0, B: 0 } block && Near(block.G, 200, 0.5));
+        Is("soft: the text stays readable", GroupColours.TreeBlock(green, false).A < 0.25 && GroupColours.TreeBlock(green, true).A < 0.25);
+        Is("the highlight is the same colour", GroupColours.TreeHighlight(green, true) with { A = 0 } == GroupColours.TreeBlock(green, true) with { A = 0 });
+        Is("painting nothing leaves what's under", GroupColours.Over(new Tint(1, 0, 0, 0), 31, 31, 33) == (31, 31, 33));
+        Is("painting solid covers it", GroupColours.Over(new Tint(1, 0, 0, 1), 31, 31, 33) == (255, 0, 0));
+        Is("half over black is half", GroupColours.Over(new Tint(1, 1, 1, 0.5f), 0, 0, 0) == (128, 128, 128));
+
         // --- Hue, saturation and brightness ---
         Is("red", GroupColours.FromHsv(0, 1, 1) == new GroupColour(255, 0, 0));
         Is("green", GroupColours.FromHsv(120, 1, 1) == new GroupColour(0, 255, 0));

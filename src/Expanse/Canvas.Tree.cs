@@ -188,14 +188,18 @@ sealed partial class Canvas
         treeScroll = GroupTree.ClampScroll(treeScroll, rows.Count, rowHeight, list.H);
         var shown = new List<TreeRowDrawing>();
         int iconSize = (int)Math.Round(GroupTree.IconSize * k);
+        // Apps follow their group's header, and take its colour; those under Other apps have none.
+        CanvasGroup? under = null;
         for (int i = 0; i < rows.Count; i++)
         {
+            var row = rows[i];
+            if (row.Kind != TreeRowKind.App) under = GroupOf(row);
             var r = GroupTree.RowRect(list, rowHeight, treeScroll, i);
             if (!r.Intersects(list)) continue;
-            var row = rows[i];
             var icon = WindowOf(row) is CanvasWindow w ? appIcons.Get(w, iconSize) : null;
             shown.Add(new TreeRowDrawing(r, row.Text, row.Depth, row.Kind != TreeRowKind.App, row.Expandable, row.Expanded,
-                row.Kind == TreeRowKind.App ? "" : row.Count.ToString(), i == treeHover || i == treeHighlight, icon));
+                row.Kind == TreeRowKind.App ? "" : row.Count.ToString(), i == treeHover || i == treeHighlight, icon,
+                under?.Id ?? -1, under?.Colour));
         }
         string empty = rows.Count > 0 ? "" : TreeHasSearch ? "No matches" : "Nothing on the canvas yet";
         return new TreeDrawing(panel, GroupTree.SearchRect(panel, k), list, treeQuery, shown, empty, dark, searchBox.IsOpen);
@@ -216,7 +220,15 @@ sealed partial class Canvas
         foreach (var row in d.Rows)
         {
             var box = R(row.Rect);
-            if (row.Highlighted) FillRect(hdc, ref box, field);
+            if (row.Colour is GroupColour c)
+            {
+                var tint = GroupColours.Over(GroupColours.TreeBlock(c, true), 31, 31, 33);
+                if (row.Highlighted) tint = GroupColours.Over(GroupColours.TreeHighlight(c, true), tint.R, tint.G, tint.B);
+                nint fill = Gdi32.CreateSolidBrush(Gdi32.RGB(tint.R, tint.G, tint.B));
+                FillRect(hdc, ref box, fill);
+                Gdi32.DeleteObject(fill);
+            }
+            else if (row.Highlighted) FillRect(hdc, ref box, field);
             box.Left += (int)((row.Depth * GroupTree.Indent + 24) * k);
             DrawText(hdc, row.Text, -1, ref box, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
