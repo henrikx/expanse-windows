@@ -245,6 +245,9 @@ sealed partial class Canvas
             if (!known.TryGetValue(h, out var w))
             {
                 if (h == draggingIn) continue; // it joins where it's dropped (see FinishDragIn)
+                // Dragged back from another monitor: it joins where it's dropped, not the moment its
+                // centre crosses (see HeldInDrag).
+                if (HeldInDrag(h) && elsewhere.Contains(h)) continue;
                 // A window whose centre is on another monitor is left alone (the Mac takes on only
                 // windows on its screen), unless it's one Expanse had: minimised, or parked by the
                 // Expanse that handed over (saved by its handle). One off every screen is taken on:
@@ -323,7 +326,7 @@ sealed partial class Canvas
                         Log.Info($"window {w} still on its way, at {f.Left},{f.Top}, not {w.Placed?.X},{w.Placed?.Y}");
                         w.Frame = w.Frame with { W = f.Width, H = f.Height };
                     }
-                    else if (OnOtherMonitorOnly(f) || (h == crossingWindow && Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects)))
+                    else if (!HeldInDrag(h) && (OnOtherMonitorOnly(f) || (h == crossingWindow && Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects))))
                     {
                         // You moved it onto another monitor: it's yours there, off the canvas, until
                         // you bring it back. Dragged across, its centre decides, or a window too wide
@@ -1095,6 +1098,11 @@ sealed partial class Canvas
 
     /// A drag that's still going: the left button's check is for one whose end we never heard of.
     bool UserDragging => userMoving != 0 && GetAsyncKeyState(VK_LBUTTON) < 0;
+
+    /// The window you're dragging: whether it's on the canvas or off it is settled where you drop
+    /// it. Decided on the way, a drag that crossed the edge and came back took the window off the
+    /// canvas and on again as a new one, and the other monitor's windows were raised over it.
+    bool HeldInDrag(nint h) => h == userMoving && UserDragging;
 
     void NoteUserDrag(string what, nint hwnd)
     {
@@ -2473,7 +2481,9 @@ sealed partial class Canvas
     /// their own order, without taking focus. Not hung ones, which would stall us.
     void KeepOtherMonitorsAbove()
     {
-        if (paused || active) return;
+        // Not under a window you're dragging across: it would end up behind them. The sync after
+        // the drop comes back here.
+        if (paused || active || UserDragging) return;
         var (spilling, others, covered) = ReadStacking();
         if (spilling.Count == 0) return;
         Log.Info($"other monitors: canvas windows reaching them: {Listed(spilling)}; their own windows: {Listed(others)}; covered: {covered}");
