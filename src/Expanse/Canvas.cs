@@ -2132,6 +2132,8 @@ sealed partial class Canvas
             pictures.Attach(Stack());
         }
         pictures.SetDesktop(settings.Wallpaper ? monitor : null);
+        bareUntilZoom = zoomOut && overview;
+        pictures.HideDecorations(bareUntilZoom);
         rising.Mark("pictures");
         Relayout();
         rising.Mark("draw");
@@ -2153,6 +2155,12 @@ sealed partial class Canvas
             rising.Mark($"settle {Settle()}f");
             Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]");
             returnCamera = camera;
+            if (bareUntilZoom)
+            {
+                // Drawn already, and composed while Settle waited: showing them is all the first frame does.
+                bareUntilZoom = false;
+                pictures.HideDecorations(false);
+            }
             if (!overview) { HoverAtCursor(); return; }
             // The pointer may already be over a window, with no move to tell us.
             Animate(OverviewCamera(), 0.22, () =>
@@ -3228,7 +3236,7 @@ sealed partial class Canvas
         double k = UiScale;
         pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         probe?.Mark("titles");
-        pictures.SetMarks(show ? CurrentMarks(k) : Marks.None, k);
+        pictures.SetMarks(show && !bareUntilZoom ? CurrentMarks(k) : Marks.None, k);
         probe?.Mark("marks");
         // First: closing the wheel puts the group's colour back.
         var colourWheel = ColourWheelNow(k);
@@ -3750,6 +3758,12 @@ sealed partial class Canvas
 
     /// First launch: Welcome & Shortcuts opens by itself.
     bool warming; // WarmUp: drawing everything once, with the overlay down
+    /// Rising to zoom out: the overlay shows only the pictures, just as the windows look, until
+    /// the zoom starts. Groups, names, the minimap and the panel showed straight away, so Settle's
+    /// wait for DWM (a while after a long time at 100%) looked like the zoom stalling halfway. They're
+    /// drawn all the same, hidden (IPictures.HideDecorations): drawn in the zoom's first frame
+    /// instead, they made it late.
+    bool bareUntilZoom;
 
     /// The first zoom out after starting took most of a second before anything moved: loading and
     /// scaling the desktop picture (the backdrop and the Desktops panel's tiles), Direct2D's and

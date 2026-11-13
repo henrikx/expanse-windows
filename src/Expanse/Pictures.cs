@@ -82,6 +82,10 @@ interface IPictures : IDisposable
     /// Puts everything changed since the last call on screen, in one go (one composition
     /// commit): pictures, titles, ring and guides move together.
     void Present();
+    /// Hides the groups, titles, minimap, Desktops and groups panels, and buttons, drawn or not,
+    /// without dropping them: showing them again costs nothing to draw. Only for a kind that
+    /// DrawsDecorations.
+    void HideDecorations(bool hidden);
 
     /// Waits until the last layout is on screen: before the overlay is shown, so it never
     /// appears without its pictures.
@@ -215,6 +219,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }
+    public void HideDecorations(bool hidden) { }
 
     /// The next Moved sends it again, with the new source rect.
     public void Resized(CanvasWindow w)

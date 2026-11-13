@@ -85,7 +85,7 @@ sealed class SharedVisualPictures : IPictures
     Picture? desktopPicture;
     readonly Strips accent, marqueeFill, guides;
     /// The stack tabs' opacity as they fade out, shared by all of them.
-    readonly IDCompositionEffectGroup tabFade;
+    readonly IDCompositionEffectGroup tabFade, decorationsHidden;
     readonly Dictionary<nint, MarkLayer> markLayers = new();
     IDCompositionSurface? closeSurface;
     double closeScale;
@@ -178,6 +178,8 @@ sealed class SharedVisualPictures : IPictures
         device.CreateVisual(out groupLabels);
         root.AddVisual(groupLabels, false, null);
         device.CreateEffectGroup(out tabFade);
+        device.CreateEffectGroup(out decorationsHidden);
+        decorationsHidden.SetOpacity(0f);
         accent = new Strips(this, 76 / 255f, 154 / 255f, 1f);
         marqueeFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.12f);
         device.CreateVisual(out titles);
@@ -431,6 +433,14 @@ sealed class SharedVisualPictures : IPictures
         if (!pictures.TryGetValue(w.Hwnd, out var p)) return;
         p.Visual.SetOffsetX((float)w.Frame.X);
         p.Visual.SetOffsetY((float)w.Frame.Y);
+    }
+
+    /// One effect, opacity 0, on each of their layers: their surfaces stay, so they're composed (and
+    /// paid for) while hidden.
+    public void HideDecorations(bool hidden)
+    {
+        foreach (var layer in new[] { groupBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer })
+            layer.SetEffect(hidden ? decorationsHidden : null);
     }
 
     public void Present()
@@ -1346,6 +1356,7 @@ sealed class SharedVisualPictures : IPictures
         accent.Dispose();
         marqueeFill.Dispose();
         tabFade.Dispose();
+        decorationsHidden.Dispose();
         guides.Dispose();
         closeSurface?.Dispose();
         minimapSurface?.Dispose();
