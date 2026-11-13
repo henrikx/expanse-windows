@@ -2639,27 +2639,27 @@ sealed partial class Canvas
     }
 
     /// Makes `hwnd` the foreground window. Windows only lets the foreground process (or the
-    /// one that got the last input) do that: a hotkey or a click on the overlay qualifies. If
-    /// it's refused, a dummy Alt tap (which makes us the last input's process), then
-    /// AttachThreadInput. Returns which step worked, for the log and the spike write-up.
+    /// one that got the last input) do that. From another app's window, a tap of a key no app
+    /// acts on goes first, which makes us the last input's process. If it's still refused, an Alt
+    /// tap, then AttachThreadInput. Returns which step worked, for the log and the spike write-up.
     static string Focus(nint hwnd)
     {
         nint before = GetForegroundWindow();
         string from = CanvasWindow.Describe(before);
+        // Asked without it, a few minutes after we last had the foreground Windows refused, and
+        // the switch the fallbacks then made held up DWM a few frames into the zoom out.
+        GetWindowThreadProcessId(before, out uint owner);
+        bool tapped = before != 0 && owner != Environment.ProcessId;
+        if (tapped) TapKey(0xFF);
+        string how = tapped ? "after a null key" : "direct";
         bool returned = SetForegroundWindow(hwnd);
         // Accepted, it can still take a while to show (a window just maximised, say): an Alt tap
-        // then would land in it, and WinUI apps show their key tips.
-        if (IsForeground(hwnd, returned ? 25 : 5)) return $"direct (from {from})";
-        var steps = $"direct refused (returned {returned}, from {from})";
-        // A key no app acts on, first: an Alt tap lands in the window in front, and WinUI apps
-        // (Notepad, Settings) show their key tips for it.
-        TapKey(0xFF);
-        returned = SetForegroundWindow(hwnd);
-        if (IsForeground(hwnd)) return steps + ", ok after a null key";
-        steps += $", null key refused (returned {returned})";
+        // then would land in it, and WinUI apps show their key tips. Refused, it won't come.
+        if (IsForeground(hwnd, returned ? 25 : 1)) return $"{how} (from {from})";
+        var steps = $"{how} refused (returned {returned}, from {from})";
         TapKey(VK_MENU);
         returned = SetForegroundWindow(hwnd);
-        if (IsForeground(hwnd)) return steps + ", ok after Alt tap";
+        if (IsForeground(hwnd, returned ? 5 : 1)) return steps + ", ok after Alt tap";
         steps += $", Alt tap refused (returned {returned})";
         uint fg = GetWindowThreadProcessId(GetForegroundWindow(), out _);
         uint me = Kernel32.GetCurrentThreadId();
