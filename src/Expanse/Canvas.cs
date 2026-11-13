@@ -183,6 +183,10 @@ sealed partial class Canvas
         public readonly int[] Collections = [GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)];
         /// Windows moving on the canvas at the same time (Tidy Up).
         public List<(CanvasWindow w, RectD from, RectD to)>? Moves;
+        /// With Detailed Logging: DWM's counts after the first and the latest frame, and each frame
+        /// as DwmFrame wrote it.
+        public DWM_TIMING_INFO? DwmFirst, DwmLast;
+        public readonly List<string> DwmFrames = new();
     }
 
     public Canvas(Overlay overlay, string pictureKind)
@@ -2103,6 +2107,7 @@ sealed partial class Canvas
             return;
         }
         var rising = new FrameProbe();
+        var dwmBefore = Log.ToFile ? DwmTiming() : null;
         ReadScreen();
         if (sync) Sync();
         rising.Mark("sync");
@@ -2153,7 +2158,8 @@ sealed partial class Canvas
             lastOverlayFocus = Focus(overlay.Hwnd);
             rising.Mark("focus");
             rising.Mark($"settle {Settle()}f");
-            Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]");
+            string dwmRising = dwmBefore is DWM_TIMING_INFO before && DwmTiming() is DWM_TIMING_INFO after ? $"; DWM while rising {DwmBetween(before, after)}" : "";
+            Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]{dwmRising}");
             returnCamera = camera;
             if (bareUntilZoom)
             {
@@ -2198,6 +2204,40 @@ sealed partial class Canvas
         if (ms < 4) return;
         recentFrames.Enqueue(ms);
         while (recentFrames.Count > RecentFrames) recentFrames.Dequeue();
+    }
+
+    /// DWM's counts and times; null, said in the log once, if it won't give them.
+    static DWM_TIMING_INFO? DwmTiming()
+    {
+        var t = Dwm.Timing(out int hr);
+        if (t == null && !dwmTimingFailed) Log.Info($"DWM timing: unavailable (0x{hr:X8}, {Marshal.SizeOf<DWM_TIMING_INFO>()} bytes asked)");
+        dwmTimingFailed |= t == null;
+        return t;
+    }
+    static bool dwmTimingFailed;
+
+    /// One frame of `a`, just committed, for the log: the gap since the last, the screen's refreshes
+    /// and DWM's compositions since the last (more refreshes than compositions: DWM skipped one), and
+    /// how long after the last refresh this frame's commit went (near a whole period: likely too late
+    /// for the next composition).
+    static void DwmFrame(Animation a, double gap)
+    {
+        if (DwmTiming() is not DWM_TIMING_INFO t) return;
+        double sinceVBlank = ((long)Stopwatch.GetTimestamp() - (long)t.qpcVBlank) * 1000.0 / Stopwatch.Frequency;
+        a.DwmFrames.Add(a.DwmLast is DWM_TIMING_INFO last
+            ? $"{gap:0.0}/{t.cRefresh - last.cRefresh}/{t.cFrame - last.cFrame}/{sinceVBlank:0.0}"
+            : $"-/-/-/{sinceVBlank:0.0}");
+        a.DwmFirst ??= t;
+        a.DwmLast = t;
+    }
+
+    /// What DWM did between two readings: the screen's rate, its refreshes, DWM's compositions,
+    /// and the frames DWM itself counted missed, dropped and late.
+    static string DwmBetween(DWM_TIMING_INFO from, DWM_TIMING_INFO to)
+    {
+        double hz = to.rateRefreshDenominator == 0 ? 0 : (double)to.rateRefreshNumerator / to.rateRefreshDenominator;
+        return $"at {hz:0.0} Hz: {to.cRefresh - from.cRefresh} refreshes, {to.cFrame - from.cFrame} composed, " +
+               $"missed {to.cFramesMissed - from.cFramesMissed}, dropped {to.cFramesDropped - from.cFramesDropped}, late {to.cFramesLate - from.cFramesLate}";
     }
 
     /// The overlay coming up and the focus moving keep DWM busy for a frame or more, and longer
@@ -2813,10 +2853,12 @@ sealed partial class Canvas
             return;
         }
         long now = Stopwatch.GetTimestamp();
+        double frameGap = 0;
         if (a.Frames == 0) a.FirstFrame = now;
         else
         {
             double gap = Stopwatch.GetElapsedTime(a.LastFrame, now).TotalMilliseconds;
+            frameGap = gap;
             FrameTook(gap);
             // The gap is the last frame's work, then waiting for DWM, then the messages since.
             if (gap > a.MaxGap)
@@ -2843,6 +2885,7 @@ sealed partial class Canvas
         Relayout();
         lastFrameWork = probe.ToString();
         probe = null;
+        if (Log.ToFile) DwmFrame(a, frameGap);
         double layout = Ms(l0);
         a.LayoutTotal += layout;
         bench?.Layouts.Add(layout);
@@ -2855,6 +2898,8 @@ sealed partial class Canvas
         {
             Log.Info($"animation: {lastAnimation}");
             if (a.Slowest != null) Log.Info($"animation: slowest {a.Slowest}");
+            if (a.DwmFirst is DWM_TIMING_INFO first && a.DwmLast is DWM_TIMING_INFO last)
+                Log.Info($"animation: DWM {DwmBetween(first, last)}; frames as gap ms/refreshes/composed/committed ms after vblank: {string.Join(" ", a.DwmFrames)}");
         }
         animation = null;
         a.Completion?.Invoke();

@@ -494,6 +494,32 @@ public static class Gdi32
     public static uint RGB(byte r, byte g, byte b) => (uint)(r | (g << 8) | (b << 16));
 }
 
+/// dwmapi.h's DWM_TIMING_INFO, packed to a byte as there (292 bytes). Counts are since boot;
+/// times are QueryPerformanceCounter ticks, as Stopwatch's.
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct DWM_TIMING_INFO
+{
+    public uint cbSize, rateRefreshNumerator, rateRefreshDenominator;
+    public ulong qpcRefreshPeriod;
+    public uint rateComposeNumerator, rateComposeDenominator;
+    public ulong qpcVBlank, cRefresh;
+    public uint cDXRefresh;
+    public ulong qpcCompose, cFrame;
+    public uint cDXPresent;
+    public ulong cRefreshFrame, cFrameSubmitted;
+    public uint cDXPresentSubmitted;
+    public ulong cFrameConfirmed;
+    public uint cDXPresentConfirmed;
+    public ulong cRefreshConfirmed;
+    public uint cDXRefreshConfirmed;
+    public ulong cFramesLate;
+    public uint cFramesOutstanding;
+    public ulong cFrameDisplayed, qpcFrameDisplayed, cRefreshFrameDisplayed, cFrameComplete, qpcFrameComplete,
+        cFramePending, qpcFramePending, cFramesDisplayed, cFramesComplete, cFramesPending, cFramesAvailable,
+        cFramesDropped, cFramesMissed, cRefreshNextDisplayed, cRefreshNextPresented, cRefreshesDisplayed,
+        cRefreshesPresented, cRefreshStarted, cPixelsReceived, cPixelsDrawn, cBuffersEmpty;
+}
+
 public static class Dwm
 {
     const string Dll = "dwmapi.dll";
@@ -511,6 +537,15 @@ public static class Dwm
     [DllImport(Dll)] public static extern int DwmSetWindowAttribute(nint hwnd, int attr, ref int value, int size);
     [DllImport(Dll)] public static extern int DwmFlush();
     [DllImport(Dll)] public static extern int DwmIsCompositionEnabled(out bool enabled);
+    [DllImport(Dll)] public static extern int DwmGetCompositionTimingInfo(nint hwnd, ref DWM_TIMING_INFO info);
+
+    /// DWM's own counts and times, or null with the HRESULT it gave.
+    public static DWM_TIMING_INFO? Timing(out int hr)
+    {
+        var info = new DWM_TIMING_INFO { cbSize = (uint)Marshal.SizeOf<DWM_TIMING_INFO>() };
+        hr = DwmGetCompositionTimingInfo(0, ref info);
+        return hr == 0 ? info : null;
+    }
 
     /// False while DWM is down: it restarts after a graphics driver reset or update (or a crash),
     /// and for a second or two there are no window pictures and no visible-frame reads.
