@@ -2161,15 +2161,19 @@ sealed partial class Canvas
             lastOverlayFocus = Focus(overlay.Hwnd);
             rising.Mark("focus");
             rising.Mark($"settle {Settle()}f");
+            if (bareUntilZoom)
+            {
+                // A refresh before the zoom starts, too short to see as a wait: shown in its first
+                // frame instead, DWM took a refresh or two over them, and the zoom's first frames came late.
+                bareUntilZoom = false;
+                pictures.HideDecorations(false);
+                Redraw();
+                Dwm.DwmFlush();
+                rising.Mark("shown");
+            }
             string dwmRising = dwmBefore is DWM_TIMING_INFO before && DwmTiming() is DWM_TIMING_INFO after ? $"; DWM while rising {DwmBetween(before, after)}" : "";
             Log.Info($"zoom out: {windows.Count} windows; overlay foreground {lastOverlayFocus}; rising took [{rising}]{dwmRising}");
             returnCamera = camera;
-            if (bareUntilZoom)
-            {
-                // Drawn already, and composed while Settle waited: showing them is all the first frame does.
-                bareUntilZoom = false;
-                pictures.HideDecorations(false);
-            }
             if (!overview) { HoverAtCursor(); return; }
             // The pointer may already be over a window, with no move to tell us.
             Animate(OverviewCamera(), 0.22, () =>
@@ -3820,8 +3824,8 @@ sealed partial class Canvas
     /// Rising to zoom out: the overlay shows only the pictures, just as the windows look, until
     /// the zoom starts. Groups, names, the minimap and the panel showed straight away, so Settle's
     /// wait for DWM (a while after a long time at 100%) looked like the zoom stalling halfway. They're
-    /// drawn all the same, hidden (IPictures.HideDecorations): drawn in the zoom's first frame
-    /// instead, they made it late.
+    /// drawn all the same, hidden (IPictures.HideDecorations), and shown a refresh before the zoom:
+    /// drawn, or only shown, in its first frame, they made that frame late.
     bool bareUntilZoom;
 
     /// The first zoom out after starting took most of a second before anything moved: loading and
