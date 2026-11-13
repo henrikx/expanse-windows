@@ -50,6 +50,7 @@ SlowAppTests.Run(Expect);
 StackTests.Run(Expect);
 ResizeTests.Run(Expect);
 GroupColourTests.Run(Expect);
+FramePacingTests.Run(Expect);
 int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---

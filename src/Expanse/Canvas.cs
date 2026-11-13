@@ -176,6 +176,9 @@ sealed partial class Canvas
         public Vec? Anchor;
         public int Frames;
         public long FirstFrame, LastFrame;
+        /// What its time counts from: a refresh before its first frame is on screen, so frames are
+        /// placed for when they show (FramePacing). Start, if DWM won't say when that is.
+        public long Clock;
         public double MaxGap, LayoutTotal;
         /// What the longest gap between frames went on (see FrameProbe).
         public string? Slowest;
@@ -2854,7 +2857,12 @@ sealed partial class Canvas
         }
         long now = Stopwatch.GetTimestamp();
         double frameGap = 0;
-        if (a.Frames == 0) a.FirstFrame = now;
+        var (shown, refresh) = ShownAt(now);
+        if (a.Frames == 0)
+        {
+            a.FirstFrame = now;
+            a.Clock = refresh > 0 ? shown - refresh : a.Start;
+        }
         else
         {
             double gap = Stopwatch.GetElapsedTime(a.LastFrame, now).TotalMilliseconds;
@@ -2868,7 +2876,7 @@ sealed partial class Canvas
         }
         a.Frames++;
         a.LastFrame = now;
-        double t = Math.Min(1, Stopwatch.GetElapsedTime(a.Start, now).TotalSeconds / a.Duration);
+        double t = Math.Min(1, Stopwatch.GetElapsedTime(a.Clock, shown).TotalSeconds / a.Duration);
         double e = 1 - Math.Pow(1 - t, 3); // ease-out cubic
         camera = t >= 1 ? a.To : Camera.Between(a.From, a.To, e, a.Anchor ?? new Vec(ViewSize.X / 2, ViewSize.Y / 2));
         long l0 = Stopwatch.GetTimestamp();
@@ -2912,6 +2920,12 @@ sealed partial class Canvas
     }
 
     static double Lerp(double a, double b, double t) => a + (b - a) * t;
+
+    /// When a frame committed `now` will be on screen (FramePacing), and a refresh, in Stopwatch
+    /// ticks: `now` and 0 if DWM won't say.
+    static (long at, long refresh) ShownAt(long now) =>
+        Dwm.Timing(out _) is DWM_TIMING_INFO t && FramePacing.ShownAt(now, (long)t.qpcVBlank, (long)t.qpcRefreshPeriod) is long at
+            ? (at, (long)t.qpcRefreshPeriod) : (now, 0);
     static double Ms(long since) => Stopwatch.GetElapsedTime(since).TotalMilliseconds;
 
     // MARK: Input
@@ -3821,8 +3835,20 @@ sealed partial class Canvas
         if (pictures.DrawsDecorations)
         {
             warming = true;
-            try { Redraw(); }
-            finally { warming = false; }
+            var was = camera;
+            try
+            {
+                Redraw();
+                // And on the way out to everything, as a zoom out goes: the first one ran that code
+                // for the first time, and took a few times as long a frame (6 ms, not 1.5).
+                var to = OverviewCamera();
+                foreach (double e in new[] { 0.3, 0.7, 1.0 })
+                {
+                    camera = Camera.Between(was, to, e, new Vec(ViewSize.X / 2, ViewSize.Y / 2));
+                    Relayout();
+                }
+            }
+            finally { camera = was; warming = false; }
             Redraw(); // and gone again
         }
         Log.Info($"warmed up in {Ms(t0):0}ms");
