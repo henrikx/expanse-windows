@@ -2881,7 +2881,7 @@ sealed partial class Canvas
         a.Frames++;
         a.LastFrame = now;
         double t = Math.Min(1, Stopwatch.GetElapsedTime(a.Clock, shown).TotalSeconds / a.Duration);
-        double e = 1 - Math.Pow(1 - t, 3); // ease-out cubic
+        double e = a.Wheel ? Easing.Out(t) : Easing.Ease(t);
         camera = t >= 1 ? a.To : Camera.Between(a.From, a.To, e, a.Anchor ?? new Vec(ViewSize.X / 2, ViewSize.Y / 2));
         long l0 = Stopwatch.GetTimestamp();
         probe = new FrameProbe();
