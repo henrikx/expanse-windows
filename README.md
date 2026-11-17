@@ -120,6 +120,7 @@ start it with Windows.
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box, its edges snapping to other windows and groups |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
+| Right-click an app in no group | Go into it, as a click does |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | Click the coloured circle by a group's name | Open a colour wheel: press or drag on it to recolour the group, and let go to keep the colour. <kbd>Esc</kbd> or a click elsewhere leaves it as it was |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |

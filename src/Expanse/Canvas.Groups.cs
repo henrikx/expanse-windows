@@ -290,17 +290,19 @@ sealed partial class Canvas
         rightPressed = CanPressRight && !covered ? WindowAt(p) : null;
     }
 
-    /// A right click on an app in a group goes to the group, at any zoom. Elsewhere it does nothing.
+    /// A right click on an app in a group goes to the group, at any zoom. On one in no group it goes
+    /// into that app, as a click does: doing nothing there made it look broken.
     void ReleaseRight(Vec p)
     {
         var w = rightPressed;
         rightPressed = null;
-        if (w == null || !CanPressRight || WindowAt(p) != w || GroupHolding(w) is not CanvasGroup g) return;
+        if (w == null || !CanPressRight || WindowAt(p) != w) return;
         Log.Info($"right click on {w}");
         renameBox.Finish(save: true, byKey: false);
         searchBox.Close();
         ClearSelection();
-        FocusGroup(g, w);
+        if (GroupHolding(w) is CanvasGroup g) FocusGroup(g, w);
+        else Exit(w, keepView: true);
     }
 
     /// The New Group button, which sits over everything. True if the press was on it.
