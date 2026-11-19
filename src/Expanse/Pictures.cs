@@ -87,6 +87,14 @@ interface IPictures : IDisposable
     /// DrawsDecorations.
     void HideDecorations(bool hidden);
 
+    /// Draws these pictures, each scaled by `scale` at canvas spot (x, y), at 1/255 opacity, until
+    /// Unwarm: so DWM rebuilds what it gave back while they went unseen (Warming). False if this
+    /// kind can't.
+    bool Warm(IReadOnlyList<(CanvasWindow w, double scale, double x, double y)> faint);
+
+    /// The pictures Warm moved, back at their windows' spots as they were.
+    void Unwarm();
+
     /// Waits until the last layout is on screen: before the overlay is shown, so it never
     /// appears without its pictures.
     void Flush();
@@ -220,6 +228,8 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }
     public void HideDecorations(bool hidden) { }
+    public bool Warm(IReadOnlyList<(CanvasWindow w, double scale, double x, double y)> faint) => false;
+    public void Unwarm() { }
 
     /// The next Moved sends it again, with the new source rect.
     public void Resized(CanvasWindow w)

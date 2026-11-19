@@ -52,6 +52,7 @@ ResizeTests.Run(Expect);
 GroupColourTests.Run(Expect);
 FramePacingTests.Run(Expect);
 EasingTests.Run(Expect);
+WarmingTests.Run(Expect);
 int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---

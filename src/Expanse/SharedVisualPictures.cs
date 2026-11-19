@@ -85,7 +85,9 @@ sealed class SharedVisualPictures : IPictures
     Picture? desktopPicture;
     readonly Strips accent, marqueeFill, guides;
     /// The stack tabs' opacity as they fade out, shared by all of them.
-    readonly IDCompositionEffectGroup tabFade, decorationsHidden;
+    readonly IDCompositionEffectGroup tabFade, decorationsHidden, warmFaint;
+    /// The pictures Warm moved, to put back.
+    readonly List<CanvasWindow> warmed = new();
     readonly Dictionary<nint, MarkLayer> markLayers = new();
     IDCompositionSurface? closeSurface;
     double closeScale;
@@ -180,6 +182,8 @@ sealed class SharedVisualPictures : IPictures
         device.CreateEffectGroup(out tabFade);
         device.CreateEffectGroup(out decorationsHidden);
         decorationsHidden.SetOpacity(0f);
+        device.CreateEffectGroup(out warmFaint);
+        warmFaint.SetOpacity(1 / 255f);
         accent = new Strips(this, 76 / 255f, 154 / 255f, 1f);
         marqueeFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.12f);
         device.CreateVisual(out titles);
@@ -441,6 +445,33 @@ sealed class SharedVisualPictures : IPictures
     {
         foreach (var layer in new[] { groupBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer })
             layer.SetEffect(hidden ? decorationsHidden : null);
+    }
+
+    public bool Warm(IReadOnlyList<(CanvasWindow w, double scale, double x, double y)> faint)
+    {
+        foreach (var (w, scale, x, y) in faint)
+        {
+            if (!pictures.TryGetValue(w.Hwnd, out var p)) continue;
+            p.Visual.SetOffsetX(0);
+            p.Visual.SetOffsetY(0);
+            p.Visual.SetTransform(new Matrix3x2((float)scale, 0, 0, (float)scale, (float)x, (float)y));
+            p.Visual.SetEffect(warmFaint);
+            warmed.Add(w);
+        }
+        return true;
+    }
+
+    public void Unwarm()
+    {
+        foreach (var w in warmed)
+        {
+            if (!pictures.TryGetValue(w.Hwnd, out var p)) continue;
+            p.Visual.SetTransform(Matrix3x2.Identity);
+            p.Visual.SetEffect(null);
+            p.Visual.SetOffsetX((float)w.Frame.X);
+            p.Visual.SetOffsetY((float)w.Frame.Y);
+        }
+        warmed.Clear();
     }
 
     public void Present()

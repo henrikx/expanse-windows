@@ -213,7 +213,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0;
+    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0 || warmQueue.Count > 0 || warmingSome;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -2097,7 +2097,7 @@ sealed partial class Canvas
     /// Raises the overlay with every picture exactly over its real window, then (zoomOut)
     /// animates out to every window.
     /// `overview`: false rises at 100% without zooming out (moving around from where you are).
-    public void Enter(bool zoomOut, bool sync = true, bool overview = true)
+    public void Enter(bool zoomOut, bool sync = true, bool overview = true, bool warmFirst = true)
     {
         if (active)
         {
@@ -2161,6 +2161,12 @@ sealed partial class Canvas
             lastOverlayFocus = Focus(overlay.Hwnd);
             rising.Mark("focus");
             rising.Mark($"settle {Settle()}f");
+            if (Rested)
+            {
+                // A drag mustn't wait: it warms them a few a frame instead (WarmSome).
+                if (!warmFirst) foreach (var w in windows) warmQueue.Enqueue(w);
+                else if (WarmPictures(windows) is string warm) rising.Mark(warm);
+            }
             if (bareUntilZoom)
             {
                 // A refresh before the zoom starts, too short to see as a wait: shown in its first
@@ -2183,6 +2189,106 @@ sealed partial class Canvas
                 if (pendingRestore is SavedLayout restore) { pendingRestore = null; RestoreLayout(restore); }
             });
         }
+    }
+
+    /// When the canvas last went down (0: not yet since launch).
+    long leftAt;
+
+    /// The pictures of those of `which` the canvas may show next but doesn't now, drawn unseen where
+    /// the overview shows them (for a scroll from 100% too, which doesn't go there: anywhere DWM
+    /// draws them will do), until DWM has rebuilt what it gave back of them after a rest at 100%
+    /// (Warming): frames until one takes no longer than usual, at least Warming.MinMs and up to
+    /// Warming.MaxMs. What it did, for the log; null if it didn't.
+    string? WarmPictures(IEnumerable<CanvasWindow> which)
+    {
+        if (Faint(which) is not { } faint) return null;
+        pictures.Present();
+        long t0 = Stopwatch.GetTimestamp();
+        var frames = new List<string>();
+        while (true)
+        {
+            long t = Stopwatch.GetTimestamp();
+            Dwm.DwmFlush();
+            double ms = Ms(t);
+            frames.Add($"{ms:0}");
+            bool onTime = ms <= FramePeriodMs * 1.3;
+            FrameTook(ms);
+            if ((frames.Count >= 2 && onTime && Ms(t0) >= Warming.MinMs) || Ms(t0) >= Warming.MaxMs) break;
+        }
+        pictures.Unwarm();
+        pictures.Present();
+        return $"warm {faint} pictures {Ms(t0):0}ms [{string.Join(" ", frames)}]";
+    }
+
+    /// Long enough at 100% that DWM may have given memory back (Warming.MinRestSeconds).
+    bool Rested => leftAt == 0 || Stopwatch.GetElapsedTime(leftAt).TotalSeconds >= Warming.MinRestSeconds;
+
+    /// Those of `which` the canvas doesn't show now, drawn faintly where the overview shows them, until
+    /// Unwarm (IPictures.Warm). How many; null if none.
+    int? Faint(IEnumerable<CanvasWindow> which)
+    {
+        var to = OverviewCamera();
+        var faint = new List<(CanvasWindow, double, double, double)>();
+        foreach (var w in which)
+            if (Warming.Placement(w.Frame, camera, to, View) is { } at) faint.Add((w, at.scale, at.x, at.y));
+        return faint.Count > 0 && pictures.Warm(faint) ? faint.Count : null;
+    }
+
+    /// Windows still to warm after a middle-button drag from 100%, which starts at once: a few a
+    /// frame as it goes (WarmSome), so a zoom out after it has little or nothing left to wait for.
+    readonly Queue<CanvasWindow> warmQueue = new();
+    bool warmingSome;
+    int warmedSome, warmFrames;
+    double warmSlowest;
+    /// How many WarmSome draws a frame: about 300 MB for 30 windows came back in one 180 ms frame,
+    /// so two a frame is about 20 MB.
+    const int WarmPerFrame = 2;
+
+    /// One frame of warming in the background: last frame's go back, the next few are drawn.
+    void WarmSome()
+    {
+        if (warmingSome)
+        {
+            pictures.Unwarm();
+            warmingSome = false;
+            warmFrames++;
+            warmSlowest = Math.Max(warmSlowest, FlushMs);
+        }
+        var next = new List<CanvasWindow>();
+        while (next.Count < WarmPerFrame && warmQueue.TryDequeue(out var w)) next.Add(w);
+        if (Faint(next) is int n) { warmingSome = true; warmedSome += n; }
+        pictures.Present();
+        if (!warmingSome && warmQueue.Count == 0 && warmFrames > 0)
+        {
+            Log.Info($"warmed {warmedSome} pictures over {warmFrames} frames while moving, slowest DWM wait {warmSlowest:0.0}ms");
+            warmedSome = warmFrames = 0;
+            warmSlowest = 0;
+        }
+    }
+
+    /// Before the camera animates (a zoom out, after a drag from 100%): what WarmSome hadn't got to
+    /// yet, all at once and waited for, as a zoom out from 100% does.
+    void FinishWarming()
+    {
+        if (warmQueue.Count == 0 && !warmingSome) return;
+        pictures.Unwarm();
+        warmingSome = false;
+        var rest = warmQueue.ToList();
+        warmQueue.Clear();
+        if (warmFrames > 0) Log.Info($"warmed {warmedSome} pictures over {warmFrames} frames while moving, slowest DWM wait {warmSlowest:0.0}ms");
+        warmedSome = warmFrames = 0;
+        warmSlowest = 0;
+        if (WarmPictures(rest) is string warm) Log.Info($"before moving the camera: {warm}");
+    }
+
+    /// The canvas going down: nothing left drawn faintly, or to draw.
+    void StopWarming()
+    {
+        warmQueue.Clear();
+        if (warmingSome) pictures.Unwarm();
+        warmingSome = false;
+        warmedSome = warmFrames = 0;
+        warmSlowest = 0;
     }
 
     /// The most frames Settle waits for DWM to come back up to speed, after the first.
@@ -2436,8 +2542,10 @@ sealed partial class Canvas
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
         ShowDialogOverCanvas(0);
+        StopWarming();
         pictures.Detach();
         active = false;
+        leftAt = Stopwatch.GetTimestamp();
         gliding = false;
         glideTarget = null;
         returnCamera = null;
@@ -2820,6 +2928,7 @@ sealed partial class Canvas
 
     void Animate(Camera to, double duration, Action? completion = null, List<(CanvasWindow, RectD, RectD)>? moves = null)
     {
+        FinishWarming();
         // The camera goes in a straight line, so this holds all a glide or dive will show.
         if (gliding) Lift(Layout.GlideArea(camera, to, View), now: true);
         else if (liftAhead) Lift(Layout.LiftArea(to, View));
@@ -2853,6 +2962,7 @@ sealed partial class Canvas
             liftCamera = still;
         }
         else liftQueue.Clear();
+        if (active && (warmingSome || warmQueue.Count > 0)) WarmSome();
         var a = animation;
         if (a == null)
         {
@@ -3116,7 +3226,7 @@ sealed partial class Canvas
                 var at = new POINT((short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
                 if (at.X < monitor.Left || at.X >= monitor.Right || at.Y < monitor.Top || at.Y >= monitor.Bottom) return 0;
                 Log.Info("middle button at 100%: moving the canvas");
-                Enter(zoomOut: true, overview: false);
+                Enter(zoomOut: true, overview: false, warmFirst: false);
                 // Rising takes a moment: the button may be up by now, and a press then would stick.
                 if (active && desktopInput.MiddleHeld)
                 {
