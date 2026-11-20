@@ -102,7 +102,7 @@ sealed partial class Canvas
     /// their new size is the size you chose.
     readonly HashSet<nint> userSized = new();
 
-    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize, WindowResize, ColourPick }
+    enum DragKind { Windows, Marquee, Pan, Minimap, GroupMove, GroupResize, WindowResize, ColourPick, PinnedApp }
     readonly Minimap minimap = new();
     readonly DesktopsPanel desktopsPanel = new();
     int hoveredDesktop = -1;
@@ -204,6 +204,7 @@ sealed partial class Canvas
         updater = new Updater(Post) { OnReady = UpdateReady };
         events = new WinEvents(OnWindowEvent);
         WireSearchBox();
+        WirePinnedFrames();
         desktopInput = new DesktopInput(overlay.Hwnd);
         // Told when the screen locks and the displays sleep (see Handle).
         if (!WTSRegisterSessionNotification(overlay.Hwnd, 0 /* NOTIFY_FOR_THIS_SESSION */))
@@ -213,7 +214,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0 || warmQueue.Count > 0 || warmingSome;
+    public bool IsAnimating => animation != null || pinMove != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0 || warmQueue.Count > 0 || warmingSome || decorationsFadingIn || canvasDecorationsRising;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -249,8 +250,15 @@ sealed partial class Canvas
         for (int i = found.Count - 1; i >= 0; i--)
         {
             nint h = found[i];
+            // Pinned: Expanse leaves it where it is (see Canvas.Pinning).
+            if (PinnedApp(h) is CanvasWindow pinned)
+            {
+                KeepPinned(pinned);
+                continue;
+            }
             if (!known.TryGetValue(h, out var w))
             {
+                if (ClaimForPinned(h)) continue;
                 if (h == draggingIn) continue; // it joins where it's dropped (see FinishDragIn)
                 // Dragged back from another monitor: it joins where it's dropped, not the moment its
                 // centre crosses (see HeldInDrag).
@@ -348,6 +356,12 @@ sealed partial class Canvas
                         departed.Remove(h);
                         continue;
                     }
+                    else if (PinnedGroupTaking(w, f) is CanvasGroup pinning)
+                    {
+                        // You dropped it in a pinned group: it's that group's now, not the canvas's.
+                        JoinPinned(pinning, w, ViewFrame(f));
+                        continue;
+                    }
                     else
                     {
                         var frame = ScreenToCanvas(f);
@@ -361,7 +375,8 @@ sealed partial class Canvas
             }
             next.Add(w);
         }
-        var removed = windows.Except(next).ToList();
+        var removed = windows.Except(next).Where(w => PinnedGroupOf(w) == null).ToList();
+        PrunePinned();
         foreach (var gone in removed)
         {
             // Still there, just minimised, hidden or cloaked: it'll come back to its spot.
@@ -499,6 +514,7 @@ sealed partial class Canvas
         int moved = Commit();
         Log.Info(saved == null ? "no saved layout" : $"saved layout: {restored} of {windows.Count} windows back at their spots ({moved} moved)");
         initialSyncDone = true;
+        UpdatePinnedFrames();
         Save();
     }
 
@@ -870,6 +886,7 @@ sealed partial class Canvas
         }
         // Whatever Windows did to the real windows, every one is placed again.
         foreach (var w in windows) w.Placed = null;
+        if (final) KeepPinnedOnScreen();
         if (!active)
         {
             if (final) RestoreSizesAndPlace(); else Commit();
@@ -973,6 +990,8 @@ sealed partial class Canvas
 
     CanvasWindow? WindowAt(Vec viewPoint)
     {
+        // A pinned group is over the canvas: nothing under it can be reached.
+        if (PinnedGroupAt(viewPoint) != null) return null;
         // A dialog's picture counts as its owner's.
         for (int i = windows.Count - 1; i >= 0; i--)
             if (windows[i].WithOwned().Any(w => camera.ToView(w.Frame).Contains(viewPoint))) return windows[i];
@@ -1009,7 +1028,7 @@ sealed partial class Canvas
     {
         if (ev == EVENT_SYSTEM_FOREGROUND && tray.MenuJustOpen) Log.Info($"tray menu: foreground moved to {CanvasWindow.Describe(hwnd)}");
         if (paused) return;
-        bool known = windows.Any(w => w.Hwnd == hwnd || w.Owned.Any(o => o.Hwnd == hwnd));
+        bool known = windows.Any(w => w.Hwnd == hwnd || w.Owned.Any(o => o.Hwnd == hwnd)) || PinnedApp(hwnd) != null;
         switch (ev)
         {
             case EVENT_SYSTEM_FOREGROUND:
@@ -1038,6 +1057,13 @@ sealed partial class Canvas
                 break;
             case EVENT_OBJECT_LOCATIONCHANGE:
             case EVENT_SYSTEM_MOVESIZEEND:
+                if (ev == EVENT_SYSTEM_MOVESIZEEND && PinnedApp(hwnd) is CanvasWindow pinnedMoved)
+                {
+                    if (userMoving == hwnd) userMoving = 0;
+                    NoteUserDrag("end", hwnd);
+                    PinnedAppMoved(pinnedMoved);
+                    break;
+                }
                 if (ev == EVENT_SYSTEM_MOVESIZEEND)
                 {
                     if (userMoving == hwnd) userMoving = 0;
@@ -1191,6 +1217,7 @@ sealed partial class Canvas
         if (suspendTracking && !active) Commit();
         ScheduleSave();
         UpdateStackBars();
+        if (!active) UpdatePinnedFrames();
         // An arrival may have started a glide, whose pictures are already up.
         if (!wasActive || gliding || (added.Count == 0 && removed.Count == 0 && ownedArrived.Count == 0 && ownedLeft.Count == 0)) return;
         foreach (var w in removed)
@@ -1247,6 +1274,7 @@ sealed partial class Canvas
     void FocusSettled()
     {
         nint hwnd = GetForegroundWindow();
+        if (!paused && PinnedFocusZoomedOut(hwnd)) return;
         if (paused || active || animation != null || hwnd == 0) return;
         KeepOtherMonitorsAbove();
         UpdateStackBars();
@@ -1268,7 +1296,7 @@ sealed partial class Canvas
         lastFocusedWindow = w.Hwnd;
         // Only what Decide needs is read, and in its order: nothing past the hidden check unless it
         // gets that far, the input only soon after a window went away, the mouse only otherwise.
-        bool hiddenEnough = settings.AutoCentre && Layout.HiddenEnough(camera.ToView(focused.Frame), WorkView, settings.AutoCentreHidden);
+        bool hiddenEnough = settings.AutoCentre && Layout.HiddenEnough(camera.ToView(focused.Frame), GlideArea, settings.AutoCentreHidden);
         if (!hiddenEnough) return;
         // The key that closed it (Alt+F4, Ctrl+W) is still being let go for a moment: that's not
         // you picking another window.
@@ -1299,7 +1327,7 @@ sealed partial class Canvas
             Log.Info($"{focused} was moved by hand as it got focus; the view stays");
             return;
         }
-        Log.Info($"focus went to {focused}, {Layout.HiddenShare(camera.ToView(focused.Frame), WorkView):P0} hidden: glide to {w}");
+        Log.Info($"focus went to {focused}, {Layout.HiddenShare(camera.ToView(focused.Frame), GlideArea):P0} hidden: glide to {w}");
         Glide(w, nudge: focused);
     }
 
@@ -1463,6 +1491,8 @@ sealed partial class Canvas
             CentreOn(minimap.CanvasPoint(p));
         }
         else if (spaceHeld) drag = new Drag(DragKind.Pan, p);
+        else if (!ctrl && !shift && PinnedAppAt(p) is CanvasWindow pinnedApp)
+            drag = new Drag(DragKind.PinnedApp, p) { Clicked = pinnedApp, Moving = [(pinnedApp, pinnedApp.Frame)] };
         else if (!ctrl && !shift && GroupLabelAt(p) is (CanvasGroup labelled, GroupPart labelPart, ResizeEdges labelEdges))
         {
             if (!PressGroup(labelled, labelPart, labelEdges, p)) { Redraw(); return; }
@@ -1540,6 +1570,9 @@ sealed partial class Canvas
             case DragKind.ColourPick:
                 DragColour(p);
                 return;
+            case DragKind.PinnedApp:
+                DragPinnedApp(d, p);
+                return;
             case DragKind.Pan:
                 if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return; // still a click
                 d.Moved = true;
@@ -1599,6 +1632,8 @@ sealed partial class Canvas
         minimap.Frozen = false;
         switch (d.What)
         {
+            case DragKind.Windows when d.Moved && d.Moving.Count == 1 && d.MovingGroups.Count == 0 && DropIntoPinned(d.Moving[0].w, d.Moving[0].start):
+                break;
             case DragKind.Windows when d.Moved:
                 if (d.MovingGroups.Count > 0) Log.Info($"dragged {d.MovingGroups.Count} groups and {d.Moving.Count} windows by {d.GroupsMoved.X:0},{d.GroupsMoved.Y:0}");
                 else Log.Info(d.Moving.Count == 1 ? $"dragged {d.Clicked} to {d.Clicked!.Frame}"
@@ -1616,6 +1651,9 @@ sealed partial class Canvas
                 break;
             case DragKind.ColourPick:
                 EndColourPick(click);
+                break;
+            case DragKind.PinnedApp:
+                EndPinnedAppDrag(d, click);
                 break;
             case DragKind.Windows when click && d.Clicked == null:
                 // On a selected group, not on one of its apps.
@@ -1770,7 +1808,7 @@ sealed partial class Canvas
     /// Picking this at 100% leaves the view where it is: as Auto-Centre When Hidden says, the
     /// same as focus on it outside the canvas. With Auto-Centre off, as long as its centre is on screen.
     bool StaysInView(RectD r) => settings.AutoCentre
-        ? !Layout.HiddenEnough(r, WorkView, settings.AutoCentreHidden)
+        ? !Layout.HiddenEnough(r, GlideArea, settings.AutoCentreHidden)
         : View.Contains(r.Center);
 
     /// What NudgeCamera leaves between a window and the edge of the work area, at a display scale of 1.
@@ -2010,6 +2048,8 @@ sealed partial class Canvas
         if (paused || active) return;
         Save(cleanExit: true);
         Originals.Restore(windows);
+        LetGoOfPinned();
+        pinnedFrames.Hide();
         paused = true;
         stackBars?.Hide();
         tray.SetTip("Expanse (paused)");
@@ -2118,6 +2158,12 @@ sealed partial class Canvas
         stackBars?.Hide();
         active = true;
         gliding = !zoomOut;
+        // The tabs and pinned frames at 100% give way to the overlay's, which fade out (Redraw).
+        SetDecorationAlpha(0);
+        if (gliding) BeginGlideFade(fromCanvas: false);
+        // Moving the canvas from 100% (not zooming out): the groups and the rest come in softly.
+        canvasDecorationsRising = zoomOut && !overview;
+        decorationsRiseAt = Stopwatch.GetTimestamp();
         liftAhead = false;
         liftChecked.Clear();
         liftQueue.Clear();
@@ -2132,12 +2178,12 @@ sealed partial class Canvas
             picturesStale = false;
             RemakePictures();
         }
-        if (!pictures.Attach(Stack()) && pictures is SharedVisualPictures)
+        if (!AttachPictures() && pictures is SharedVisualPictures)
         {
             Log.Info("pictures: shared visuals failed for every window; falling back to DWM thumbnails");
             pictures.Dispose();
             pictures = new ThumbnailPictures(overlay.Hwnd);
-            pictures.Attach(Stack());
+            AttachPictures();
         }
         pictures.SetDesktop(settings.Wallpaper ? monitor : null);
         bareUntilZoom = zoomOut && overview;
@@ -2490,6 +2536,7 @@ sealed partial class Canvas
             else target = FocusCamera(focus);
         }
         else target = returnCamera ?? Camera.Centered(camera.Center(ViewSize), 1, ViewSize);
+        if (!gliding) BeginGlideFade(fromCanvas: true);
         gliding = true;
         hovered = null;
         glideTarget = focus;
@@ -2518,11 +2565,15 @@ sealed partial class Canvas
     void HandBack(CanvasWindow? focus)
     {
         var t0 = Stopwatch.GetTimestamp();
+        FinishPinMove();
         liftQueue.Clear(); // Commit saves the originals of any lifted
         liftedSinceSave = 0;
         int moved = Commit();
         int waited = WaitForMoves();
-        var target = focus ?? CanvasWindowOf(previousForeground)
+        // In a pinned app (you clicked it, or were in it before zooming out), you stay in it.
+        var stayIn = focus == null ? pinnedFocus ?? PinnedAppOf(previousForeground) : null;
+        pinnedFocus = null;
+        var target = stayIn ?? focus ?? CanvasWindowOf(previousForeground)
             ?? windows.LastOrDefault(w => camera.ToView(w.Frame).Intersects(View));
         if (target != null && IsWindow(target.Hwnd))
         {
@@ -2538,6 +2589,7 @@ sealed partial class Canvas
         ReleaseDragIn();
         renameBox.Finish(save: true, byKey: false);
         ResetTree();
+        UpdatePinnedFrames();
         HoldOverlayForRepaint();
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
@@ -2552,6 +2604,9 @@ sealed partial class Canvas
         ClearSelection();
         spaceHeld = false;
         KeepOtherMonitorsAbove();
+        // They come back faintly, then fade in (StepDecorationsIn).
+        decorationsFadeInAt = Stopwatch.GetTimestamp();
+        decorationsFadingIn = true;
         UpdateStackBars();
         if (pendingRestoreAll) { pendingRestoreAll = false; RestoreAll(); }
         Log.Info($"handed back: moved {moved} windows, waited {waited} frames, {Ms(t0):0}ms");
@@ -2777,6 +2832,9 @@ sealed partial class Canvas
             g.Box = new RectD(o.X, o.Y, s.W, s.H);
         }
         if (fittedView is SizeD v) fittedView = Z(v);
+        // Pinned ones are on the screen, which Windows scales from its top-left.
+        foreach (var g in pinnedGroups.Concat(pinnedAway.Away.Select(a => a.Item)))
+            g.Box = new RectD(Layout.Round(g.Box.X * r), Layout.Round(g.Box.Y * r), Layout.Round(g.Box.W * r), Layout.Round(g.Box.H * r));
         foreach (var w in windows) w.FitPush = w.FitPush * r;
         Log.Info($"scaling {canvasDpi * 100 / 96}% -> {dpi * 100 / 96}%: canvas scaled by {r:0.###}");
     }
@@ -2887,8 +2945,10 @@ sealed partial class Canvas
         double ax = work.Left - monitor.Left, ay = work.Top - monitor.Top;
         // Maximised: exactly where maximised windows sit (Place maximises it there).
         if (w.Maximised) return new Camera(new Vec(Math.Round(w.Frame.X - ax), Math.Round(w.Frame.Y - ay)), 1);
-        double x = ax + (work.Width - w.Frame.W) / 2;
-        double y = w.Frame.H > work.Height ? ay : ay + (work.Height - w.Frame.H) / 2;
+        // Clear of the pinned groups at the screen's edges.
+        var area = GlideArea;
+        double x = area.X + (area.W - w.Frame.W) / 2;
+        double y = w.Frame.H > area.H ? area.Y : area.Y + (area.H - w.Frame.H) / 2;
         return new Camera(new Vec(Math.Round(w.Frame.X - x), Math.Round(w.Frame.Y - y)), 1);
     }
 
@@ -2897,7 +2957,7 @@ sealed partial class Canvas
     Camera NudgeCamera(CanvasWindow w)
     {
         if (w.Maximised) return FocusCamera(w);
-        var d = Layout.Nudge(camera.ToView(w.Frame), WorkView, NudgePadding * UiScale);
+        var d = Layout.Nudge(camera.ToView(w.Frame), GlideArea, NudgePadding * UiScale);
         return new Camera(new Vec(Math.Round(camera.Origin.X - d.X), Math.Round(camera.Origin.Y - d.Y)), 1);
     }
 
@@ -2946,6 +3006,7 @@ sealed partial class Canvas
     {
         bool fading = GroupSolidityMoving;
         if (fading) StepGroupSolidity();
+        if (decorationsFadingIn) StepDecorationsIn();
         if (active)
         {
             // Only with the camera still since the last frame: a glide, a wheel turn and panning
@@ -2963,10 +3024,11 @@ sealed partial class Canvas
         }
         else liftQueue.Clear();
         if (active && (warmingSome || warmQueue.Count > 0)) WarmSome();
+        if (pinMove != null) StepPinMove();
         var a = animation;
         if (a == null)
         {
-            if (fading || ColourWheelGrowing) Redraw();
+            if (fading || ColourWheelGrowing || canvasDecorationsRising) Redraw();
             return;
         }
         long now = Stopwatch.GetTimestamp();
@@ -3115,7 +3177,7 @@ sealed partial class Canvas
                     picturesStale = false;
                     // The compositor restarted while zoomed out: new pictures, where the old were.
                     RemakePictures();
-                    pictures.Attach(Stack());
+                    AttachPictures();
                     pictures.SetDesktop(settings.Wallpaper ? monitor : null);
                     Relayout();
                 }
@@ -3391,6 +3453,8 @@ sealed partial class Canvas
         if (liftAhead && active && !gliding) Lift(Layout.LiftArea(camera, View));
         probe?.Mark("lift queue");
         pictures.Layout(Stack(), camera, View);
+        foreach (var w in PinnedApps)
+            if (pinMove?.Apps.Any(a => a.w == w) != true) pictures.Moved(w, camera, View);
         probe?.Mark("camera");
         Redraw();
     }
@@ -3405,18 +3469,31 @@ sealed partial class Canvas
             pictures.Present();
             return;
         }
-        bool show = (active && !gliding) || warming;
+        // A glide's start: what was showing fades out (from 100%, only the tabs and pinned groups
+        // that were), instead of going at once.
+        double fade = gliding ? GlideFadeLeft() : 1;
+        bool fadingOut = gliding && fade > 0;
+        bool all = !fadingOut || glideFromCanvas; // everything the canvas shows
+        bool show = (active && !gliding) || warming || fadingOut;
+        double rise = canvasDecorationsRising && !gliding ? DecorationsRise() : 1;
+        bool rising = rise < 1;
+        if (fadingOut || rising || decorationsFaded)
+        {
+            pictures.FadeDecorations(fadingOut ? fade * (glideFromCanvas ? 1 : PinnedFrames.FaintLook) : rising ? rise : 1, !glideFromCanvas && fadingOut);
+            decorationsFaded = fadingOut || rising;
+        }
         double k = UiScale;
-        pictures.SetLabels(show && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
+        pictures.SetLabels(show && all && settings.ShowNames ? Labels().Select(l => new Label(l.w.Hwnd, LabelText(l.w), l.view)).ToList() : [], k);
         probe?.Mark("titles");
-        pictures.SetMarks(show && !bareUntilZoom ? CurrentMarks(k) : Marks.None, k);
+        var marks = !show || bareUntilZoom ? Marks.None : fadingOut ? GlideMarks(k, fade) : CurrentMarks(k);
+        pictures.SetMarks(rising ? marks with { TabOpacity = marks.TabOpacity * rise } : marks, k);
         probe?.Mark("marks");
         // First: closing the wheel puts the group's colour back.
         var colourWheel = ColourWheelNow(k);
-        pictures.SetGroups(show ? GroupDrawings(k) : [], show ? NewGroupRect(k) : null, NewGroupText, k, groupSolidity);
-        pictures.SetColourWheel(show ? colourWheel : null, k);
+        pictures.SetGroups(!show ? [] : all ? GroupDrawings(k) : PinnedDrawings(k), show && all ? NewGroupRect(k) : null, NewGroupText, k, groupSolidity);
+        pictures.SetColourWheel(show && all ? colourWheel : null, k);
         probe?.Mark("groups");
-        var map = show ? MinimapNow(k) : (MinimapDrawing?)null;
+        var map = show && all ? MinimapNow(k) : (MinimapDrawing?)null;
         // While the camera animates the minimap keeps what it showed: drawing it every frame was GPU
         // work the compositor waited on, and a frame came late. It catches up when the camera stops.
         if (animation == null || map == null || !minimapUp)
@@ -3432,6 +3509,64 @@ sealed partial class Canvas
         probe?.Mark("tree");
         pictures.Present();
         probe?.Mark("commit");
+    }
+
+    // MARK: Fading with a glide
+
+    const double GlideFadeSeconds = 0.15;
+    bool glideFromCanvas, decorationsFaded;
+    long glideFadeAt, decorationsFadeInAt;
+    bool decorationsFadingIn;
+
+    bool canvasDecorationsRising;
+    long decorationsRiseAt;
+
+    /// 0 as the canvas rises for moving around from 100%, 1 once its decorations are all in.
+    double DecorationsRise()
+    {
+        double t = Math.Min(1, Stopwatch.GetElapsedTime(decorationsRiseAt).TotalSeconds / GlideFadeSeconds);
+        if (t >= 1) canvasDecorationsRising = false;
+        return t;
+    }
+
+    void BeginGlideFade(bool fromCanvas)
+    {
+        glideFadeAt = Stopwatch.GetTimestamp();
+        glideFromCanvas = fromCanvas;
+    }
+
+    /// 1 as a glide starts, 0 once its decorations have faded out.
+    double GlideFadeLeft() => Math.Max(0, 1 - Stopwatch.GetElapsedTime(glideFadeAt).TotalSeconds / GlideFadeSeconds);
+
+    /// Just the tabs, at `opacity`, as they were at 100%.
+    Marks GlideMarks(double k, double opacity)
+    {
+        var tabs = StackTabs(k).Select(t => new StackTabDrawing(t.Window.Hwnd, t.OnTop.Hwnd, t.Text, t.Rect, t.Window == t.OnTop, t.Icon)).ToList();
+        return new Marks([], null, null, [], tabs, opacity);
+    }
+
+    List<GroupDrawing> PinnedDrawings(double k)
+    {
+        var drawings = new List<GroupDrawing>();
+        AddPinnedDrawings(drawings, k);
+        return drawings;
+    }
+
+    /// The windows drawn at 100% (stack tabs, pinned frames) at `alpha`, 0 to 255.
+    void SetDecorationAlpha(int alpha)
+    {
+        byte a = (byte)Math.Clamp(alpha, 0, 255);
+        if (DecorationAlpha.Value == a) return;
+        DecorationAlpha.Value = a;
+        stackBars?.ApplyAlpha();
+        pinnedFrames.ApplyAlpha();
+    }
+
+    void StepDecorationsIn()
+    {
+        double t = Stopwatch.GetElapsedTime(decorationsFadeInAt).TotalSeconds / GlideFadeSeconds;
+        if (t >= 1) decorationsFadingIn = false;
+        SetDecorationAlpha((int)Math.Round(255 * Math.Min(1, t)));
     }
 
     MinimapDrawing MinimapNow(double k) =>
@@ -3529,6 +3664,7 @@ sealed partial class Canvas
             Gdi32.DeleteObject(groupColour);
             Pill(g.Label, g.Name);
             nint textFont = Gdi32.SelectObject(hdc, glyph);
+            Pill(g.Pin, g.Pinned ? "\uE840" : "\uE718");
             Pill(g.Trash, "\uE74D");
             Gdi32.SelectObject(hdc, textFont);
         }
@@ -4139,6 +4275,7 @@ sealed partial class Canvas
         tray.Dispose();
         Save(handOver: true);
         Originals.Save(windows);
+        LetGoOfPinned();
         PostQuitMessage(0);
     }
 
@@ -4151,6 +4288,7 @@ sealed partial class Canvas
         {
             Save(cleanExit: true);
             Originals.Restore(windows);
+            LetGoOfPinned();
         }
         PostQuitMessage(0);
     }

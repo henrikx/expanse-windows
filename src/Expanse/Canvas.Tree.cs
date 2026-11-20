@@ -35,11 +35,12 @@ sealed partial class Canvas
     List<TreeRow> TreeRows()
     {
         static TreeApp App(CanvasWindow w) => new(w.Hwnd, w.AppName, w.Title);
-        var inGroups = groups.Select(g => new TreeGroup(g.Id, g.Name, g.Collapsed, MembersOf(g).Select(App).ToList())).ToList();
+        var inGroups = groups.Select(g => new TreeGroup(g.Id, g.Name, g.Collapsed, MembersOf(g).Select(App).ToList()))
+            .Concat(pinnedGroups.Select(g => new TreeGroup(g.Id, $"{g.Name} (pinned)", g.Collapsed, g.Pinned!.Select(App).ToList()))).ToList();
         return GroupTree.Rows(inGroups, windows.Where(w => !InAnyGroup(w)).Select(App).ToList(), othersCollapsed, treeQuery);
     }
 
-    CanvasGroup? GroupOf(TreeRow row) => row.Kind == TreeRowKind.Group ? groups.FirstOrDefault(g => g.Id == row.Key) : null;
+    CanvasGroup? GroupOf(TreeRow row) => row.Kind == TreeRowKind.Group ? groups.Concat(pinnedGroups).FirstOrDefault(g => g.Id == row.Key) : null;
 
     CanvasWindow? WindowOf(TreeRow row) => row.Kind == TreeRowKind.App ? windows.FirstOrDefault(w => w.Hwnd == row.Key) : null;
 
@@ -80,6 +81,7 @@ sealed partial class Canvas
         ClearSelection();
         if (GroupOf(row) is CanvasGroup g) FocusGroup(g);
         else if (WindowOf(row) is CanvasWindow w) Exit(w, keepView: true);
+        else if (row.Kind == TreeRowKind.App && PinnedApp((nint)row.Key) is CanvasWindow pinned) FocusPinned(PinnedGroupOf(pinned)!, pinned);
     }
 
     void OpenSearch()

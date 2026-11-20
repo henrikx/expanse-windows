@@ -27,7 +27,7 @@ sealed partial class Canvas
     {
         colourWheelGroup = g;
         colourBefore = g.Colour;
-        colourWheelBox = camera.ToView(g.Box);
+        colourWheelBox = ViewBox(g);
         colourWheelOpenedAt = Stopwatch.GetTimestamp();
         colourWheelGrown = 0;
         Log.Info($"colour wheel for group \"{g.Name}\"");
@@ -83,14 +83,14 @@ sealed partial class Canvas
     ColourWheelDrawing? ColourWheelNow(double k)
     {
         if (colourWheelGroup is not CanvasGroup g) return null;
-        if (!active || gliding || !groups.Contains(g) || camera.ToView(g.Box) != colourWheelBox)
+        if (!active || gliding || (!groups.Contains(g) && !pinnedGroups.Contains(g)) || ViewBox(g) != colourWheelBox)
         {
             CancelColourWheel();
             return null;
         }
         colourWheelGrown = Math.Max(colourWheelGrown,
             Math.Min(1, Stopwatch.GetElapsedTime(colourWheelOpenedAt).TotalSeconds / ColourWheelGrowth));
-        var (swatch, _, _) = LabelRects(g, k);
+        var (swatch, _, _, _) = LabelRects(g, k);
         var wheel = GroupColours.WheelRect(swatch, View, k);
         return new ColourWheelDrawing(GroupColours.WheelGrowing(swatch, wheel, colourWheelGrown), wheel, GroupColours.PointOnWheel(wheel, g.Colour));
     }

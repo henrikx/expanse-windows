@@ -15,7 +15,7 @@ sealed partial class Canvas
     List<StackTab> StackTabs(double k)
     {
         var tabs = new List<StackTab>();
-        if (!active || gliding || drag != null || (GroupsTakeClicks && groupSolidity >= 1)) return tabs;
+        if (!active || (gliding && GlideFadeLeft() <= 0) || drag != null || (GroupsTakeClicks && groupSolidity >= 1)) return tabs;
         // A maximised window is meant to cover what's behind it.
         var open = windows.Where(w => !w.Maximised).ToList();
         var stacks = Stacks.Find(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList());

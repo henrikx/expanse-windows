@@ -112,8 +112,12 @@ sealed class SharedVisualPictures : IPictures
     readonly Dictionary<long, IDCompositionVisual2> groupTrash = new();
     /// Each group's tint and border, in its own colour.
     readonly Dictionary<long, (Strips fill, Strips edge)> groupBoxes = new();
+    /// The groups whose boxes are in pinnedBoxLayer, over the pictures (see SetGroups).
+    readonly HashSet<long> boxesOnTop = new();
     readonly Dictionary<long, Swatch> groupSwatches = new();
-    readonly IDCompositionVisual2 groupBoxLayer, groupLabels, buttonLayer;
+    readonly IDCompositionVisual2 groupBoxLayer, pinnedBoxLayer, pinnedLayer, groupLabels, buttonLayer;
+    /// The pictures in pinnedLayer, not canvas (see Pin).
+    readonly HashSet<nint> pinnedPictures = new();
     readonly IDCompositionVisual2 wheelLayer, wheelVisual, wheelMarker;
     IDCompositionSurface? wheelSurface, markerSurface;
     int wheelSize, markerSize;
@@ -122,8 +126,9 @@ sealed class SharedVisualPictures : IPictures
     IDCompositionSurface? treeSurface;
     (int w, int h) treeSize;
     TreeDrawing? treeDrawn;
-    IDCompositionSurface? trashSurface;
+    IDCompositionSurface? trashSurface, pinSurface, pinnedSurface;
     double trashScale;
+    readonly Dictionary<long, IDCompositionVisual2> groupPins = new();
     readonly bool failForTesting;
     (double x, double y, double s)? lastCamera;
     bool commitFailed;
@@ -188,6 +193,13 @@ sealed class SharedVisualPictures : IPictures
         marqueeFill = new Strips(this, 76 / 255f, 154 / 255f, 1f, 0.12f);
         device.CreateVisual(out titles);
         root.AddVisual(titles, false, null);
+        // Pinned groups, over the canvas and all on it, but under the panels: their boxes, then
+        // their apps' pictures, in view coordinates (no camera).
+        device.CreateVisual(out pinnedBoxLayer);
+        root.AddVisual(pinnedBoxLayer, false, null);
+        device.CreateVisual(out pinnedLayer);
+        pinnedLayer.SetBitmapInterpolationMode(BitmapInterpolationMode.Linear);
+        root.AddVisual(pinnedLayer, false, null);
         guides = new Strips(this, 1f, 0.22f, 0.37f);
         device.CreateVisual(out minimapVisual);
         root.AddVisual(minimapVisual, false, null);
@@ -234,6 +246,8 @@ sealed class SharedVisualPictures : IPictures
             if (pictures.TryGetValue(w.Hwnd, out var p) && !p.Fits(w)) Drop(w.Hwnd);
         int kept = pictures.Count;
         canvas.RemoveAllVisuals();
+        pinnedLayer.RemoveAllVisuals();
+        pinnedPictures.Clear();
         int tried = 0;
         foreach (var w in stack)
         {
@@ -262,7 +276,8 @@ sealed class SharedVisualPictures : IPictures
             Dispose(layer);
         }
         if (!pictures.Remove(hwnd, out var p)) return;
-        canvas.RemoveVisual(p.Visual);
+        ParentOf(hwnd).RemoveVisual(p.Visual);
+        pinnedPictures.Remove(hwnd);
         device.Commit(); // out of the tree before its thumbnail goes, as in Remove
         Dwm.DwmUnregisterThumbnail(p.Thumb);
         p.Visual.Dispose();
@@ -307,8 +322,9 @@ sealed class SharedVisualPictures : IPictures
     public void Resized(CanvasWindow w)
     {
         if (!pictures.TryGetValue(w.Hwnd, out var old) || Create(w) is not Picture p) return;
-        canvas.AddVisual(p.Visual, true, old.Visual);
-        canvas.RemoveVisual(old.Visual);
+        var parent = ParentOf(w.Hwnd);
+        parent.AddVisual(p.Visual, true, old.Visual);
+        parent.RemoveVisual(old.Visual);
         Dwm.DwmUnregisterThumbnail(old.Thumb);
         old.Visual.Dispose();
         pictures[w.Hwnd] = p;
@@ -347,7 +363,8 @@ sealed class SharedVisualPictures : IPictures
             Dispose(layer);
         }
         if (!pictures.Remove(w.Hwnd, out var p)) return;
-        canvas.RemoveVisual(p.Visual);
+        ParentOf(w.Hwnd).RemoveVisual(p.Visual);
+        pinnedPictures.Remove(w.Hwnd);
         device.Commit();
         Dwm.DwmUnregisterThumbnail(p.Thumb);
         p.Visual.Dispose();
@@ -356,6 +373,13 @@ sealed class SharedVisualPictures : IPictures
     public void Raise(CanvasWindow w)
     {
         if (!pictures.TryGetValue(w.Hwnd, out var p)) return;
+        if (pinnedPictures.Contains(w.Hwnd))
+        {
+            pinnedLayer.RemoveVisual(p.Visual);
+            pinnedLayer.AddVisual(p.Visual, false, null);
+            device.Commit();
+            return;
+        }
         canvas.RemoveVisual(p.Visual);
         canvas.AddVisual(p.Visual, false, null);
         if (markLayers.TryGetValue(w.Hwnd, out var layer))
@@ -443,8 +467,18 @@ sealed class SharedVisualPictures : IPictures
     /// paid for) while hidden.
     public void HideDecorations(bool hidden)
     {
+        if (hidden) decorationsHidden.SetOpacity(0f);
         foreach (var layer in new[] { groupBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer })
             layer.SetEffect(hidden ? decorationsHidden : null);
+    }
+
+    public void FadeDecorations(double opacity, bool pinnedOnly)
+    {
+        decorationsHidden.SetOpacity((float)Math.Clamp(opacity, 0, 1));
+        IDCompositionVisual2[] all = [groupBoxLayer, pinnedBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer];
+        IDCompositionVisual2[] some = [pinnedBoxLayer, groupLabels];
+        foreach (var layer in all)
+            layer.SetEffect(opacity >= 1 || (pinnedOnly && !some.Contains(layer)) ? null : decorationsHidden);
     }
 
     public bool Warm(IReadOnlyList<(CanvasWindow w, double scale, double x, double y)> faint)
@@ -459,6 +493,45 @@ sealed class SharedVisualPictures : IPictures
             warmed.Add(w);
         }
         return true;
+    }
+
+    IDCompositionVisual2 ParentOf(nint hwnd) => pinnedPictures.Contains(hwnd) ? pinnedLayer : canvas;
+
+    public void Pin(CanvasWindow w, bool pinned)
+    {
+        if (!pictures.TryGetValue(w.Hwnd, out var p) || pinnedPictures.Contains(w.Hwnd) == pinned) return;
+        // Its marks (ring, ×) are the canvas's: they leave with it, and come back with it.
+        markLayers.TryGetValue(w.Hwnd, out var layer);
+        if (pinned && layer != null) canvas.RemoveVisual(layer.Container);
+        ParentOf(w.Hwnd).RemoveVisual(p.Visual);
+        if (pinned) pinnedPictures.Add(w.Hwnd); else pinnedPictures.Remove(w.Hwnd);
+        p.Visual.SetTransform(Matrix3x2.Identity);
+        p.Visual.SetOffsetX((float)w.Frame.X);
+        p.Visual.SetOffsetY((float)w.Frame.Y);
+        if (pinned) pinnedLayer.AddVisual(p.Visual, false, null);
+        else
+        {
+            canvas.AddVisual(p.Visual, false, null);
+            if (layer != null) canvas.AddVisual(layer.Container, true, p.Visual);
+        }
+    }
+
+    public void Float(CanvasWindow w, RectD? view, Camera camera)
+    {
+        if (!pictures.TryGetValue(w.Hwnd, out var p)) return;
+        if (view is not RectD v)
+        {
+            p.Visual.SetTransform(Matrix3x2.Identity);
+            p.Visual.SetOffsetX((float)w.Frame.X);
+            p.Visual.SetOffsetY((float)w.Frame.Y);
+            return;
+        }
+        // In the canvas's own coordinates, under its camera transform, as Warm does.
+        var c = camera.ToCanvas(v);
+        float s = (float)(c.W / Math.Max(1, w.Frame.W));
+        p.Visual.SetOffsetX(0);
+        p.Visual.SetOffsetY(0);
+        p.Visual.SetTransform(new Matrix3x2(s, 0, 0, s, (float)c.X, (float)c.Y));
     }
 
     public void Unwarm()
@@ -584,7 +657,13 @@ sealed class SharedVisualPictures : IPictures
         solidity = Math.Round(solidity * SoliditySteps) / SoliditySteps;
         double thin = Math.Max(1, Math.Round(scale * (1 + solidity)));
         groupLabels.RemoveAllVisuals();
-        if (groups.Count > 0 && (trashSurface == null || trashScale != scale)) DrawTrash(groups[0].Trash.H, scale);
+        if (groups.Count > 0 && (trashSurface == null || trashScale != scale))
+        {
+            trashScale = scale;
+            Replace(ref trashSurface, DrawButton("\uE74D", groups[0].Trash.H, scale));
+            Replace(ref pinSurface, DrawButton("\uE718", groups[0].Trash.H, scale));
+            Replace(ref pinnedSurface, DrawButton("\uE840", groups[0].Trash.H, scale));
+        }
         foreach (var g in groups)
         {
             if (!groupTitles.TryGetValue(g.Id, out var t))
@@ -593,19 +672,29 @@ sealed class SharedVisualPictures : IPictures
                 groupTitles[g.Id] = t = new Title(v);
                 device.CreateVisual(out var can);
                 groupTrash[g.Id] = can;
-                groupBoxes[g.Id] = (new Strips(this, 0, 0, 0, 0, groupBoxLayer), new Strips(this, 0, 0, 0, 0, groupBoxLayer));
+                device.CreateVisual(out var pin);
+                groupPins[g.Id] = pin;
                 device.CreateVisual(out var circle);
                 groupSwatches[g.Id] = new Swatch(circle);
             }
+            // Pinned, it's over the pictures and always solid: the canvas goes by under it.
+            if (!groupBoxes.ContainsKey(g.Id) || boxesOnTop.Contains(g.Id) != g.Pinned)
+            {
+                if (groupBoxes.Remove(g.Id, out var old)) { old.fill.Dispose(); old.edge.Dispose(); }
+                var layer = g.Pinned ? pinnedBoxLayer : groupBoxLayer;
+                groupBoxes[g.Id] = (new Strips(this, 0, 0, 0, 0, layer), new Strips(this, 0, 0, 0, 0, layer));
+                if (g.Pinned) boxesOnTop.Add(g.Id); else boxesOnTop.Remove(g.Id);
+            }
+            double solid = g.Pinned ? 1 : solidity;
             // From a light tint to a dark shade, which shows on any wallpaper.
             var (fill, edge) = groupBoxes[g.Id];
-            var fillTint = GroupColours.Fill(g.Colour, solidity, g.Hovered);
+            var fillTint = GroupColours.Fill(g.Colour, solid, g.Hovered);
             fill.SetColour(fillTint.R, fillTint.G, fillTint.B, fillTint.A);
             fill.Set([g.Box]);
-            var edgeTint = GroupColours.Edge(g.Colour, solidity, g.Hovered);
+            var edgeTint = GroupColours.Edge(g.Colour, solid, g.Hovered);
             edge.SetColour(edgeTint.R, edgeTint.G, edgeTint.B, edgeTint.A);
             var edges = new List<RectD>(4);
-            Outline(edges, g.Box, thin);
+            Outline(edges, g.Box, g.Pinned ? Math.Max(1, Math.Round(scale * 2)) : thin);
             edge.Set(edges);
             var swatch = groupSwatches[g.Id];
             if (swatch.Colour != g.Colour || swatch.Scale != scale || swatch.Size != (int)Math.Round(g.Swatch.H)) DrawSwatch(swatch, g.Colour, g.Swatch.H, scale);
@@ -622,6 +711,11 @@ sealed class SharedVisualPictures : IPictures
             trash.SetOffsetX((float)Math.Round(g.Trash.X));
             trash.SetOffsetY((float)Math.Round(g.Trash.Y));
             groupLabels.AddVisual(trash, false, null);
+            var pinButton = groupPins[g.Id];
+            pinButton.SetContent(g.Pinned ? pinnedSurface : pinSurface);
+            pinButton.SetOffsetX((float)Math.Round(g.Pin.X));
+            pinButton.SetOffsetY((float)Math.Round(g.Pin.Y));
+            groupLabels.AddVisual(pinButton, false, null);
         }
         // Groups out of view or deleted: their labels are made again when wanted.
         foreach (long id in groupTitles.Keys.Where(id => groups.All(g => g.Id != id)).ToList())
@@ -630,9 +724,14 @@ sealed class SharedVisualPictures : IPictures
             Dispose(gone!);
             groupTrash.Remove(id, out var can);
             can!.Dispose();
-            groupBoxes.Remove(id, out var box);
-            box.fill.Dispose();
-            box.edge.Dispose();
+            groupPins.Remove(id, out var pin);
+            pin!.Dispose();
+            if (groupBoxes.Remove(id, out var box))
+            {
+                box.fill.Dispose();
+                box.edge.Dispose();
+            }
+            boxesOnTop.Remove(id);
             groupSwatches.Remove(id, out var circle);
             circle!.Dispose();
         }
@@ -902,8 +1001,15 @@ sealed class SharedVisualPictures : IPictures
         surface.EndDraw();
     }
 
-    /// The delete button: a dark circle with a white garbage can (a glyph every Windows has).
-    void DrawTrash(double height, double scale)
+    static void Replace(ref IDCompositionSurface? surface, IDCompositionSurface made)
+    {
+        surface?.Dispose();
+        surface = made;
+    }
+
+    /// A label row's round button: a dark circle with a white glyph every Windows has (the garbage
+    /// can, a pin).
+    IDCompositionSurface DrawButton(string glyphText, double height, double scale)
     {
         float size = (float)Math.Round(height);
         device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
@@ -923,15 +1029,13 @@ sealed class SharedVisualPictures : IPictures
             d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
             d2d.Clear(new Color4(0, 0, 0, 0));
             d2d.FillEllipse(new Ellipse(new Vector2(size / 2, size / 2), size / 2, size / 2), dark);
-            d2d.DrawText("\uE74D", glyph, new Vortice.RawRectF(0, 0, size, size), white);
+            d2d.DrawText(glyphText, glyph, new Vortice.RawRectF(0, 0, size, size), white);
             d2d.PopAxisAlignedClip();
             d2d.EndDraw();
             d2d.Target = null;
         }
         surface.EndDraw();
-        trashSurface?.Dispose();
-        trashSurface = surface;
-        trashScale = scale;
+        return surface;
     }
 
     /// Four strips `t` thick along the inside of `o`.
@@ -1365,6 +1469,9 @@ sealed class SharedVisualPictures : IPictures
         titleVisuals.Clear();
         foreach (var t in groupTitles.Values) Dispose(t);
         foreach (var v in groupTrash.Values) v.Dispose();
+        foreach (var v in groupPins.Values) v.Dispose();
+        pinSurface?.Dispose();
+        pinnedSurface?.Dispose();
         if (newGroupTitle != null) Dispose(newGroupTitle);
         trashSurface?.Dispose();
         treeSurface?.Dispose();
@@ -1382,6 +1489,8 @@ sealed class SharedVisualPictures : IPictures
         wheelSurface?.Dispose();
         wheelLayer.Dispose();
         groupBoxLayer.Dispose();
+        pinnedBoxLayer.Dispose();
+        pinnedLayer.Dispose();
         groupLabels.Dispose();
         buttonLayer.Dispose();
         accent.Dispose();

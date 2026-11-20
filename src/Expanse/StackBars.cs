@@ -54,6 +54,13 @@ sealed class StackBars
 
     public bool Showing => byKey.Count > 0;
 
+    /// Their opacity, as it is now (DecorationAlpha), without drawing them again.
+    public void ApplyAlpha()
+    {
+        var blend = new Blend { Op = 0, Flags = 0, Alpha = DecorationAlpha.Value, Format = 1 };
+        foreach (var bar in byKey.Values) UpdateLayeredWindowBlend(bar.Hwnd, 0, 0, 0, 0, 0, 0, ref blend, ULW_ALPHA);
+    }
+
     public void Hide()
     {
         foreach (var bar in byKey.Values) DestroyWindow(bar.Hwnd);
@@ -138,7 +145,7 @@ sealed class StackBars
             var at = new POINT((int)Math.Round(bar.Box.X), (int)Math.Round(bar.Box.Y));
             var size = new SizePixels(w, h);
             var from = new POINT(0, 0);
-            var blend = new Blend { Op = 0, Flags = 0, Alpha = 255, Format = 1 }; // AC_SRC_OVER, AC_SRC_ALPHA
+            var blend = new Blend { Op = 0, Flags = 0, Alpha = DecorationAlpha.Value, Format = 1 }; // AC_SRC_OVER, AC_SRC_ALPHA
             if (!UpdateLayeredWindow(bar.Hwnd, screen, ref at, ref size, mem, ref from, 0, ref blend, ULW_ALPHA))
                 Log.Info($"stack tabs: couldn't update the window, error {Marshal.GetLastWin32Error()}");
         }
@@ -256,4 +263,7 @@ sealed class StackBars
     [DllImport("gdi32.dll")] static extern nint CreateDIBSection(nint dc, ref BitmapHeader header, uint usage, out nint bits, nint section, uint offset);
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool UpdateLayeredWindow(nint hwnd, nint screen, ref POINT at, ref SizePixels size, nint source, ref POINT from, uint key, ref Blend blend, uint flags);
+    /// Only the blend: the window keeps its picture.
+    [DllImport("user32.dll", EntryPoint = "UpdateLayeredWindow", SetLastError = true)]
+    static extern bool UpdateLayeredWindowBlend(nint hwnd, nint screen, nint at, nint size, nint source, nint from, uint key, ref Blend blend, uint flags);
 }

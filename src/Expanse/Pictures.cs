@@ -35,6 +35,14 @@ interface IPictures : IDisposable
     /// Positions every picture for `camera` (view = the overlay's client area).
     void Layout(IReadOnlyList<CanvasWindow> windows, Camera camera, RectD view);
 
+    /// `w` is in a pinned group (true) or back on the canvas: its picture goes over the canvas's,
+    /// under the panels, at its frame in view coordinates (with no camera), or back among them.
+    void Pin(CanvasWindow w, bool pinned);
+
+    /// `w`'s picture at `view` (view coordinates) instead of where `camera` puts its frame, as it
+    /// grows into a pinned group or shrinks back out of one; null puts it back by its frame.
+    void Float(CanvasWindow w, RectD? view, Camera camera);
+
     /// `w`'s canvas frame changed (dragged, tidied): its picture follows.
     void Moved(CanvasWindow w, Camera camera, RectD view);
 
@@ -87,6 +95,10 @@ interface IPictures : IDisposable
     /// DrawsDecorations.
     void HideDecorations(bool hidden);
 
+    /// The decorations (all of them, or `pinnedOnly` the pinned groups') at `opacity`, as they fade
+    /// out when a glide starts. 1 puts them back as they were.
+    void FadeDecorations(double opacity, bool pinnedOnly);
+
     /// Draws these pictures, each scaled by `scale` at canvas spot (x, y), at 1/255 opacity, until
     /// Unwarm: so DWM rebuilds what it gave back while they went unseen (Warming). False if this
     /// kind can't.
@@ -115,7 +127,8 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
 
 /// A group in view coordinates: its box, the circle with its colour, its name's pill and the delete
 /// button beside it.
-readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Trash, bool Hovered, GroupColour Colour);
+/// `Pinned`: kept on the screen over the canvas (see Pinning), so drawn over the pictures, solid.
+readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Pin, RectD Trash, bool Hovered, GroupColour Colour, bool Pinned);
 
 /// The colour wheel in view coordinates. `Shown`: where it is right now, as it grows into `Rect`.
 /// `Marker`: the group's colour on it, once it's grown to `Rect`.
@@ -208,6 +221,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     {
         foreach (var p in pictures.Values) Dwm.DwmUnregisterThumbnail(p.Thumb);
         pictures.Clear();
+        pinned.Clear();
     }
 
     /// Pictures wholly outside the view are hidden, and unchanged ones aren't sent again.
@@ -228,7 +242,37 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }
     public void HideDecorations(bool hidden) { }
+    public void FadeDecorations(double opacity, bool pinnedOnly) { }
     public bool Warm(IReadOnlyList<(CanvasWindow w, double scale, double x, double y)> faint) => false;
+
+    readonly HashSet<nint> pinned = new();
+
+    /// On top of the stack: DWM stacks them in the order they're registered.
+    public void Pin(CanvasWindow w, bool on)
+    {
+        if (on ? !pinned.Add(w.Hwnd) : !pinned.Remove(w.Hwnd)) return;
+        if (on) Raise(w);
+        else if (pictures.TryGetValue(w.Hwnd, out var p)) p.Dest = default;
+    }
+
+    public void Float(CanvasWindow w, RectD? view, Camera camera)
+    {
+        if (!pictures.TryGetValue(w.Hwnd, out var p)) return;
+        p.Dest = default; // the next Moved sends it by its frame again
+        if (view is not RectD v) return;
+        var props = new DWM_THUMBNAIL_PROPERTIES
+        {
+            dwFlags = Dwm.DWM_TNP_RECTDESTINATION | Dwm.DWM_TNP_RECTSOURCE | Dwm.DWM_TNP_VISIBLE |
+                      Dwm.DWM_TNP_OPACITY | Dwm.DWM_TNP_SOURCECLIENTAREAONLY,
+            rcDestination = v.Round(),
+            rcSource = w.SourceRect,
+            opacity = 255,
+            fVisible = 1,
+            fSourceClientAreaOnly = 0,
+        };
+        Dwm.DwmUpdateThumbnailProperties(p.Thumb, ref props);
+        p.Visible = true;
+    }
     public void Unwarm() { }
 
     /// The next Moved sends it again, with the new source rect.
@@ -240,7 +284,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public void Moved(CanvasWindow w, Camera camera, RectD view)
     {
         if (!pictures.TryGetValue(w.Hwnd, out var p)) return;
-        var r = camera.ToView(w.Frame);
+        var r = pinned.Contains(w.Hwnd) ? w.Frame : camera.ToView(w.Frame);
         bool visible = r.Intersects(view) && r.W >= 1 && r.H >= 1;
         var destRect = r.Round();
         if (visible == p.Visible && (!visible || Same(destRect, p.Dest))) return;

@@ -121,6 +121,7 @@ start it with Windows.
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box, its edges snapping to other windows and groups |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
 | Right-click an app in no group | Go into it, as a click does |
+| Click the pin by a group's name | Pin the group to the screen, or put it back on the canvas |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | Click the coloured circle by a group's name | Open a colour wheel: press or drag on it to recolour the group, and let go to keep the colour. <kbd>Esc</kbd> or a click elsewhere leaves it as it was |
 | <kbd>Ctrl</kbd> + <kbd>G</kbd> · <kbd>Ctrl</kbd> + <kbd>F</kbd> | Show or hide the groups panel · search it |
@@ -151,6 +152,15 @@ the canvas, even if part of it still reaches the other screen.
 dragging one in adds it and dragging it out removes it, and the box grows to fit. Boxes never
 overlap, stay until you delete them, and show only on the canvas, not at 100%. A new group gets a
 random colour, which tints its box, lightly at first and darker at Group Selection Zoom.
+
+**Pinned groups** stay on the screen while you move around the canvas under them. Click the pin
+by a group's name to pin it where it is (zoomed out, it grows to 100% there); click it again to put
+the group back on the canvas under where it is, or at the nearest free spot. Its apps stay where
+they are and in front, through glides, hops, scrolling and zooming out. Zoomed out, drag the box to
+move it and its border to resize it; click an app in it to go back to 100% where you are, in that
+app. Drag an app out of the box to put it on the canvas, or one in to add it. A pinned group at an
+edge of the screen keeps that strip to itself, so going to a window centres it in the rest. A
+maximised app can't be pinned.
 
 **The groups panel** on the right of the canvas lists every group and its apps, with the apps in
 no group under Other apps. Click a row to go there. The search bar looks through group names, app

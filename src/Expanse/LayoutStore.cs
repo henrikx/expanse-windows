@@ -42,6 +42,10 @@ sealed class SavedGroup
     public double Y { get; set; }
     public double W { get; set; }
     public double H { get; set; }
+    /// Pinned to the screen (see Pinning): the box is in view space, and so are its apps' spots.
+    public bool Pinned { get; set; }
+    /// A pinned group's apps, to find again at launch. Null on the canvas, where they're the ones inside.
+    public List<SavedWindow>? Apps { get; set; }
 }
 
 sealed class SavedWindow
@@ -109,6 +113,13 @@ static class LayoutStore
         foreach (var e in layout.Windows) Scale(e, new Vec(layout.CenterX, layout.CenterY), r);
         foreach (var g in layout.Groups ?? [])
         {
+            // On the screen, from its top-left, as Windows moves the windows.
+            if (g.Pinned)
+            {
+                (g.X, g.Y, g.W, g.H) = (Layout.Round(g.X * r), Layout.Round(g.Y * r), Layout.Round(g.W * r), Layout.Round(g.H * r));
+                foreach (var e in g.Apps ?? []) Scale(e, new Vec(0, 0), r);
+                continue;
+            }
             (g.X, g.Y) = (Layout.Round(layout.CenterX + (g.X - layout.CenterX) * r), Layout.Round(layout.CenterY + (g.Y - layout.CenterY) * r));
             (g.W, g.H) = (Layout.Round(g.W * r), Layout.Round(g.H * r));
         }

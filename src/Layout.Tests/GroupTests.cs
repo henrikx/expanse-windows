@@ -176,16 +176,17 @@ static class GroupTests
         Same("fit: nothing moved, the box keeps its extra room", new(-100, -100, 500, 500), unmoved[0]);
 
         // --- The label and the button ---
-        var (swatch, label, trash) = Groups.LabelRects(new(100, 200, 500, 300), 80, 1);
+        var (swatch, label, pin, trash) = Groups.LabelRects(new(100, 200, 500, 300), 80, 1);
         Is("label: the circle above the top-left", swatch.X == 100 && swatch.Bottom < 200);
         Is("label: the circle is as round as the can", swatch.W == swatch.H && swatch.W == trash.W && swatch.Y == trash.Y);
         Is("label: the circle right of it, on the same line", label.X >= swatch.Right && label.Y == swatch.Y && label.Bottom < 200);
         Is("label: the circle closer to it than the can", label.X - swatch.Right < trash.X - label.Right);
         Is("label: as wide as the text with its padding", label.W == 80 + 2 * Groups.LabelPad);
-        Is("label: the can to its right", trash.X >= label.Right && trash.Y == label.Y);
-        var (_, bigLabel, _) = Groups.LabelRects(new(100, 200, 500, 300), 80, 2);
+        Is("label: the pin to its right, then the can", pin.X >= label.Right && trash.X >= pin.Right && pin.Y == label.Y && trash.Y == label.Y);
+        Is("label: the pin as round as the can", pin.W == pin.H && pin.W == trash.W);
+        var (_, bigLabel, _, _) = Groups.LabelRects(new(100, 200, 500, 300), 80, 2);
         Is("label: follows the display's scale", bigLabel.H == 2 * label.H);
-        var (_, longLabel, _) = Groups.LabelRects(new(0, 200, 500, 300), 5000, 1);
+        var (_, longLabel, _, _) = Groups.LabelRects(new(0, 200, 500, 300), 5000, 1);
         Is("label: a long name is capped", longLabel.W <= Groups.LabelMaxWidth);
         var labelled = Groups.WithLabel(new(100, 200, 500, 300), 80, 1, 1);
         Same("with label: at 100%, the box and the row above it", new(100, trash.Y, 500, 200 + 300 - trash.Y), labelled);
