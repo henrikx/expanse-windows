@@ -421,6 +421,31 @@ sealed partial class Canvas
         g.SlideHome = g.Box;
         slideMove = new SlideMove { Group = g, From = g.Box, To = to, Out = true, Apps = g.Pinned.Select(w => (w, w.Frame)).ToList() };
         StepSlide();
+        LeaveSlidFocus(g);
+    }
+
+    /// Focus out of a group sliding away, to the canvas window in front on the screen: left in one of its
+    /// apps, a click on that app wouldn't be a change of focus, and the group wouldn't come back.
+    void LeaveSlidFocus(CanvasGroup g)
+    {
+        if (PinnedAppOf(GetForegroundWindow()) is not CanvasWindow app || !g.Pinned!.Contains(app)) return;
+        var view = monitor.ToRectD();
+        nint next = 0;
+        EnumWindows((h, _) =>
+        {
+            if (CanvasWindowOf(h) is CanvasWindow w && w.Hwnd == h && IsWindowVisible(h) && !IsIconic(h)
+                && Dwm.FrameBounds(h).ToRectD().Intersects(view))
+            {
+                next = h;
+                return false;
+            }
+            return true;
+        }, 0);
+        if (next == 0) return;
+        // Ours: the view stays where it is (FocusSettled).
+        lastOwnFocus = (next, Stopwatch.GetTimestamp());
+        lastFocusedWindow = next;
+        Log.Info($"focus out of slid group \"{g.Name}\": {Focus(next)}");
     }
 
     void SlideIn(CanvasGroup g, bool now = false)
