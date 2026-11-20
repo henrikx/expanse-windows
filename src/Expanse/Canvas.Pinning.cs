@@ -281,8 +281,8 @@ sealed partial class Canvas
             g.Box = g.Box.Union(Groups.Fit([view]));
             g.SlideHome = home.Union(Groups.Fit([view.Offset(by)]));
             ScheduleSave();
-            if (active) Redraw();
-            else UpdatePinnedFrames();
+            // You worked in it, so it has focus: the group comes back, as it does for a click.
+            SlideIn(g);
             return;
         }
         if (Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects))
@@ -372,6 +372,8 @@ sealed partial class Canvas
         public readonly long Start = Stopwatch.GetTimestamp();
     }
     SlideMove? slideMove;
+    /// Apps of a slid group the user is resizing or moving: focusing them mustn't bring the group in.
+    readonly HashSet<nint> slidDragged = new();
     const double SlideSeconds = 0.22;
 
     void SlideOut(CanvasGroup g)
@@ -391,6 +393,7 @@ sealed partial class Canvas
     {
         if (g.SlideHome is not RectD home) return;
         if (slideMove?.Group == g) FinishSlide();
+        slidDragged.Clear();
         Log.Info($"pinned group \"{g.Name}\" slides back in");
         g.SlideHome = null;
         slideMove = new SlideMove { Group = g, From = g.Box, To = home, Out = false, Apps = g.Pinned!.Select(w => (w, w.Frame)).ToList() };
@@ -622,11 +625,32 @@ sealed partial class Canvas
     /// A pinned group being dragged by its frame at 100%: where the pointer and it started.
     (CanvasGroup g, Vec from, RectD box, List<(CanvasWindow w, RectD start)> apps)? frameDrag;
 
+    /// A pinned group's border being dragged at 100%: the pointer and the box where it started, the edges, and the
+    /// box round its apps, which it can't shrink past.
+    (CanvasGroup g, Vec from, RectD box, ResizeEdges edges, RectD? required)? frameResize;
+
+    /// Which edges of the group's box a screen point is on.
+    ResizeEdges PinnedFrameEdges(long id, Vec screenPoint)
+    {
+        if (paused || active || pinnedGroups.FirstOrDefault(g => g.Id == id) is not CanvasGroup g || g.SlideHome != null) return ResizeEdges.None;
+        return Resizing.EdgesAt(g.Box, screenPoint - new Vec(monitor.Left, monitor.Top), BorderGrab * UiScale);
+    }
+
     void WirePinnedFrames()
     {
+        pinnedFrames.EdgesAt = PinnedFrameEdges;
         pinnedFrames.Pressed = PressPinnedFrame;
         pinnedFrames.Dragged = p =>
         {
+            if (frameResize is var (rg, rfrom, rbox, redges, required) && pinnedGroups.Contains(rg))
+            {
+                var rOthers = pinnedGroups.Where(o => o != rg).Select(o => o.Box).ToList();
+                var resized = Groups.ResizeBox(rbox, rg.Box, redges, p - rfrom, required, rOthers);
+                if (resized == rg.Box) return;
+                rg.Box = resized;
+                UpdatePinnedFrames();
+                return;
+            }
             if (frameDrag is not var (g, from, box, apps) || !pinnedGroups.Contains(g)) return;
             var others = pinnedGroups.Where(o => o != g).Select(o => o.Box).ToList();
             var moved = Pinning.OnScreen(Groups.Move(g.Box, box.Offset(p - from), others), PinnedRoom);
@@ -637,6 +661,15 @@ sealed partial class Canvas
         };
         pinnedFrames.Released = () =>
         {
+            if (frameResize is var (resized, _, startBox, _, _))
+            {
+                frameResize = null;
+                if (resized.Box == startBox) return;
+                Log.Info($"pinned group \"{resized.Name}\" resized at 100% to {resized.Box}");
+                ScheduleSave();
+                UpdatePinnedFrames();
+                return;
+            }
             if (frameDrag is not var (g, _, box, _)) return;
             frameDrag = null;
             if (g.Box == box) return;
@@ -665,6 +698,10 @@ sealed partial class Canvas
                 break;
             case PinnedFramePart.Dock:
                 ToggleKeepClear(g);
+                break;
+            case PinnedFramePart.Border:
+                frameResize = (g, at, g.Box, PinnedFrameEdges(g.Id, at),
+                    g.Pinned!.Count == 0 ? null : Groups.Fit(g.Pinned.Select(w => w.Frame)));
                 break;
             case PinnedFramePart.Pin:
                 UnpinGroup(g);

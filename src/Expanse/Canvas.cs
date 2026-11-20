@@ -1049,6 +1049,7 @@ sealed partial class Canvas
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
                 userMoving = hwnd;
+                if (PinnedApp(hwnd) is CanvasWindow slidStart && PinnedGroupOf(slidStart)?.SlideHome != null) slidDragged.Add(hwnd);
                 UpdateStackBars();
                 moveStart = (hwnd, Dwm.FrameBounds(hwnd), Environment.TickCount64);
                 crossingWindow = monitor.ToRectD().Contains(Dwm.FrameBounds(hwnd).ToRectD().Center) ? hwnd : 0;
@@ -1274,8 +1275,18 @@ sealed partial class Canvas
     void FocusSettled()
     {
         nint hwnd = GetForegroundWindow();
-        // Into one of a slid group's apps (a click on what shows of it, Alt-Tab): the group comes back.
-        if (!paused && PinnedAppOf(hwnd) is CanvasWindow slidApp && PinnedGroupOf(slidApp) is { SlideHome: not null } slid) SlideIn(slid);
+        // Into one of a slid group's apps (a click on what shows of it, Alt-Tab): the group comes back. Not
+        // if the click is the start of a resize or a move, which would pull the window from under your hand:
+        // that waits for the button, and a drag that came of it leaves the group where it is.
+        if (!paused && PinnedAppOf(hwnd) is CanvasWindow slidApp && PinnedGroupOf(slidApp) is { SlideHome: not null } slid)
+        {
+            if (ButtonHeld || userMoving != 0)
+            {
+                SetTimer(overlay.Hwnd, FocusTimer, 30, 0);
+                return;
+            }
+            if (!slidDragged.Remove(slidApp.Hwnd)) SlideIn(slid);
+        }
         if (!paused && PinnedFocusZoomedOut(hwnd)) return;
         if (paused || active || animation != null || hwnd == 0) return;
         KeepOtherMonitorsAbove();

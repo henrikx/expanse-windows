@@ -270,7 +270,7 @@ sealed partial class Canvas
         };
     }
 
-    static int ResizeCursor(ResizeEdges edges) => edges switch
+    internal static int ResizeCursor(ResizeEdges edges) => edges switch
     {
         ResizeEdges.Left or ResizeEdges.Right => IDC_SIZEWE,
         ResizeEdges.Top or ResizeEdges.Bottom => IDC_SIZENS,

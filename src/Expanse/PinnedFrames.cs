@@ -19,7 +19,7 @@ readonly record struct PinnedFrameLook(long Id, RectD Box, string Name, RectD Sw
     public RectD Bounds => Box.Union(Swatch).Union(Label).Union(Pin).Union(Trash).Union(Dock.W > 0 ? Dock : Pin);
 }
 
-enum PinnedFramePart { Colour, Label, Pin, Dock, Trash, Edge, Body }
+enum PinnedFramePart { Colour, Label, Pin, Dock, Trash, Edge, Border, Body }
 
 /// How opaque the windows drawn at 100% (the stack tabs and the pinned groups' frames) are: they fade
 /// out as a glide starts and in as it ends (Canvas.SetDecorationAlpha), not appear and disappear.
@@ -60,6 +60,8 @@ sealed class PinnedFrames
     /// while it's held, and its release.
     public Action<long, PinnedFramePart, Vec>? Pressed;
     public Action<Vec>? Dragged;
+    /// Which of its border's edges a screen point is on (None: not on it), for the cursor and a press.
+    public Func<long, Vec, ResizeEdges>? EdgesAt;
     public Action? Released;
     nint held;
 
@@ -249,6 +251,10 @@ sealed class PinnedFrames
             {
                 case WM_MOUSEACTIVATE:
                     return MA_NOACTIVATE;
+                case WM_SETCURSOR when (lParam & 0xFFFF) == 1 /* HTCLIENT */ && byId.Values.FirstOrDefault(f => f.Hwnd == hwnd) is Frame over
+                    && EdgesAt?.Invoke(over.Look.Id, Cursor()) is { } edges && edges != ResizeEdges.None && !over.Look.Handle.Contains(Cursor()):
+                    SetCursor(LoadCursor(0, Canvas.ResizeCursor(edges)));
+                    return 1;
                 case WM_LBUTTONDOWN:
                     if (byId.Values.FirstOrDefault(f => f.Hwnd == hwnd) is Frame frame)
                     {
@@ -258,8 +264,9 @@ sealed class PinnedFrames
                             : l.Dock.W > 0 && l.Dock.Contains(p) ? PinnedFramePart.Dock
                             : l.Trash.Contains(p) ? PinnedFramePart.Trash : l.Label.Contains(p) ? PinnedFramePart.Label
                             : l.Handle.W > 0 && l.Handle.Contains(p) ? PinnedFramePart.Edge
+                            : EdgesAt?.Invoke(l.Id, p) is { } e && e != ResizeEdges.None ? PinnedFramePart.Border
                             : l.Box.Contains(p) ? PinnedFramePart.Body : (PinnedFramePart?)null;
-                        if (part is PinnedFramePart.Label or PinnedFramePart.Body)
+                        if (part is PinnedFramePart.Label or PinnedFramePart.Body or PinnedFramePart.Border)
                         {
                             held = hwnd;
                             SetCapture(hwnd);
