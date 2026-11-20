@@ -126,7 +126,8 @@ sealed class SharedVisualPictures : IPictures
     IDCompositionSurface? treeSurface;
     (int w, int h) treeSize;
     TreeDrawing? treeDrawn;
-    IDCompositionSurface? trashSurface, pinSurface, pinnedSurface;
+    IDCompositionSurface? trashSurface, pinSurface, pinnedSurface, dockLeftSurface, dockLeftOnSurface, dockRightSurface, dockRightOnSurface;
+    readonly Dictionary<long, IDCompositionVisual2> groupDocks = new();
     double trashScale;
     readonly Dictionary<long, IDCompositionVisual2> groupPins = new();
     readonly bool failForTesting;
@@ -663,6 +664,10 @@ sealed class SharedVisualPictures : IPictures
             Replace(ref trashSurface, DrawButton("\uE74D", groups[0].Trash.H, scale));
             Replace(ref pinSurface, DrawButton("\uE718", groups[0].Trash.H, scale));
             Replace(ref pinnedSurface, DrawButton("\uE840", groups[0].Trash.H, scale));
+            Replace(ref dockLeftSurface, DrawButton(PinnedFrames.DockLeftGlyph, groups[0].Trash.H, scale));
+            Replace(ref dockLeftOnSurface, DrawButton(PinnedFrames.DockLeftGlyph, groups[0].Trash.H, scale, on: true));
+            Replace(ref dockRightSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale));
+            Replace(ref dockRightOnSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale, on: true));
         }
         foreach (var g in groups)
         {
@@ -674,6 +679,8 @@ sealed class SharedVisualPictures : IPictures
                 groupTrash[g.Id] = can;
                 device.CreateVisual(out var pin);
                 groupPins[g.Id] = pin;
+                device.CreateVisual(out var dock);
+                groupDocks[g.Id] = dock;
                 device.CreateVisual(out var circle);
                 groupSwatches[g.Id] = new Swatch(circle);
             }
@@ -716,6 +723,14 @@ sealed class SharedVisualPictures : IPictures
             pinButton.SetOffsetX((float)Math.Round(g.Pin.X));
             pinButton.SetOffsetY((float)Math.Round(g.Pin.Y));
             groupLabels.AddVisual(pinButton, false, null);
+            if (g.Dock.W > 0)
+            {
+                var dockButton = groupDocks[g.Id];
+                dockButton.SetContent(g.DockRight ? (g.KeepClear ? dockRightOnSurface : dockRightSurface) : (g.KeepClear ? dockLeftOnSurface : dockLeftSurface));
+                dockButton.SetOffsetX((float)Math.Round(g.Dock.X));
+                dockButton.SetOffsetY((float)Math.Round(g.Dock.Y));
+                groupLabels.AddVisual(dockButton, false, null);
+            }
         }
         // Groups out of view or deleted: their labels are made again when wanted.
         foreach (long id in groupTitles.Keys.Where(id => groups.All(g => g.Id != id)).ToList())
@@ -726,6 +741,8 @@ sealed class SharedVisualPictures : IPictures
             can!.Dispose();
             groupPins.Remove(id, out var pin);
             pin!.Dispose();
+            groupDocks.Remove(id, out var dock);
+            dock!.Dispose();
             if (groupBoxes.Remove(id, out var box))
             {
                 box.fill.Dispose();
@@ -1009,7 +1026,7 @@ sealed class SharedVisualPictures : IPictures
 
     /// A label row's round button: a dark circle with a white glyph every Windows has (the garbage
     /// can, a pin).
-    IDCompositionSurface DrawButton(string glyphText, double height, double scale)
+    IDCompositionSurface DrawButton(string glyphText, double height, double scale, bool on = false)
     {
         float size = (float)Math.Round(height);
         device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
@@ -1017,7 +1034,7 @@ sealed class SharedVisualPictures : IPictures
         using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
                    new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
                    BitmapOptions.Target | BitmapOptions.CannotDraw)))
-        using (var dark = d2d.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
+        using (var dark = d2d.CreateSolidColorBrush(on ? new Color4(46 / 255f, 110 / 255f, 220 / 255f, 1f) : new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
         using (var white = d2d.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, 1f)))
         using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(12 * scale)))
         {
@@ -1470,6 +1487,11 @@ sealed class SharedVisualPictures : IPictures
         foreach (var t in groupTitles.Values) Dispose(t);
         foreach (var v in groupTrash.Values) v.Dispose();
         foreach (var v in groupPins.Values) v.Dispose();
+        foreach (var v in groupDocks.Values) v.Dispose();
+        dockLeftSurface?.Dispose();
+        dockLeftOnSurface?.Dispose();
+        dockRightSurface?.Dispose();
+        dockRightOnSurface?.Dispose();
         pinSurface?.Dispose();
         pinnedSurface?.Dispose();
         if (newGroupTitle != null) Dispose(newGroupTitle);

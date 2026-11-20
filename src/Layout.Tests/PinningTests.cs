@@ -24,6 +24,19 @@ static class PinningTests
         Same("a second strip that would leave less than a third isn't taken", new(600, 0, 1400, 1200),
             Pinning.Reserve(work, [new(0, 100, 600, 500), new(1250, 100, 750, 500)], 1));
 
+        // --- Sliding out of the screen's side ---
+        var wk = new RectD(0, 0, 2000, 1200);
+        Is("snapped: against the left", Pinning.SnappedSide(new(0, 100, 400, 600), wk, 1) == -1);
+        Is("snapped: near the right", Pinning.SnappedSide(new(1560, 100, 400, 600), wk, 1) == 1);
+        Is("snapped: in the middle, neither", Pinning.SnappedSide(new(800, 100, 400, 600), wk, 1) == 0);
+        Is("snapped: too far from the edge", Pinning.SnappedSide(new(100, 100, 400, 600), wk, 1) == 0);
+        Is("snapped: off the screen isn't against it", Pinning.SnappedSide(new(-300, 100, 400, 600), wk, 1) == 0);
+        Same("handle: the box's left strip", new(0, 100, 18, 600), Pinning.Handle(new(0, 100, 400, 600), -1, 1));
+        Same("handle: the box's right strip", new(1982, 100, 18, 600), Pinning.Handle(new(1600, 100, 400, 600), 1, 1));
+        Same("slid left: the padding and a tenth of the apps stay", new(-341, 100, 400, 600), Pinning.Slid(new(0, 100, 400, 600), -1, wk));
+        Same("slid right: the same share stays", new(1941, 100, 400, 600), Pinning.Slid(new(1600, 100, 400, 600), 1, wk));
+        Same("visible: the part on screen", new(0, 100, 59, 600), Pinning.Visible(new(-341, 100, 400, 600), wk));
+
         // --- Pinned zoomed out: it grows to 100% round its centre ---
         var view = new RectD(0, 0, 2000, 1200);
         Same("grows round its centre", new(700, 400, 600, 400), Pinning.Grown(new(940, 560, 120, 80), new(600, 400), view));

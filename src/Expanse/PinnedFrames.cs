@@ -11,12 +11,15 @@ using static Expanse.Native.User32;
 namespace Expanse;
 
 /// What a pinned group shows at 100%, in screen coordinates: its box, and the row above it.
-readonly record struct PinnedFrameLook(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Pin, RectD Trash, GroupColour Colour)
+/// `Handle`: the strip along its screen-side edge that slides it out, `Edge` (-1 left, 1 right) the side; empty when it isn't
+/// snapped to one, or is slid out.
+readonly record struct PinnedFrameLook(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Pin, RectD Trash, GroupColour Colour,
+    RectD Handle = default, int Edge = 0, RectD Dock = default, bool KeepClear = false, bool DockRight = false)
 {
-    public RectD Bounds => Box.Union(Swatch).Union(Label).Union(Pin).Union(Trash);
+    public RectD Bounds => Box.Union(Swatch).Union(Label).Union(Pin).Union(Trash).Union(Dock.W > 0 ? Dock : Pin);
 }
 
-enum PinnedFramePart { Colour, Label, Pin, Trash, Body }
+enum PinnedFramePart { Colour, Label, Pin, Dock, Trash, Edge, Body }
 
 /// How opaque the windows drawn at 100% (the stack tabs and the pinned groups' frames) are: they fade
 /// out as a glide starts and in as it ends (Canvas.SetDecorationAlpha), not appear and disappear.
@@ -44,6 +47,8 @@ sealed class PinnedFrames
     /// How much fainter than zoomed out.
     const float Faint = 0.6f;
     public const double FaintLook = Faint;
+    /// The dock button's picture: a window with a panel docked at that side (E90C / E90D).
+    public const string DockLeftGlyph = "\uE90C", DockRightGlyph = "\uE90D";
 
     readonly Dictionary<long, Frame> byId = new();
     readonly WndProc proc; // kept alive: Windows holds a pointer to it
@@ -103,7 +108,7 @@ sealed class PinnedFrames
             }
             frame.Look = look;
             var b = look.Bounds;
-            string drawn = $"{scale}|{look.Name}|{look.Colour.Packed}|{look.Box.X - b.X},{look.Box.Y - b.Y},{look.Box.W},{look.Box.H}|{look.Label.W}";
+            string drawn = $"{scale}|{look.Name}|{look.Colour.Packed}|{look.Box.X - b.X},{look.Box.Y - b.Y},{look.Box.W},{look.Box.H}|{look.Label.W}|{look.Edge}|{look.Handle.W}|{look.KeepClear}|{look.DockRight}";
             if (drawn != frame.Drawn)
             {
                 Render(frame, scale);
@@ -113,14 +118,19 @@ sealed class PinnedFrames
         }
     }
 
-    /// Moved as a whole (dragged at 100%), without drawing it again.
-    public void MoveBy(long id, Vec by)
+    /// Moved as a whole (dragged at 100%), without drawing it again. With a `batch` (DeferWindowPos),
+    /// it moves with the other windows in it, at once; the batch to go on with.
+    public nint MoveBy(long id, Vec by, nint batch = 0)
     {
-        if (!byId.TryGetValue(id, out var f)) return;
+        if (!byId.TryGetValue(id, out var f)) return batch;
         var l = f.Look;
-        f.Look = l with { Box = l.Box.Offset(by), Swatch = l.Swatch.Offset(by), Label = l.Label.Offset(by), Pin = l.Pin.Offset(by), Trash = l.Trash.Offset(by) };
+        f.Look = l with { Box = l.Box.Offset(by), Swatch = l.Swatch.Offset(by), Label = l.Label.Offset(by), Pin = l.Pin.Offset(by), Trash = l.Trash.Offset(by), Handle = l.Handle.Offset(by), Dock = l.Dock.Offset(by) };
         var b = f.Look.Bounds;
-        SetWindowPos(f.Hwnd, 0, (int)Math.Round(b.X), (int)Math.Round(b.Y), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        const uint flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        int x = (int)Math.Round(b.X), y = (int)Math.Round(b.Y);
+        if (batch != 0) return DeferWindowPos(batch, f.Hwnd, 0, x, y, 0, 0, flags);
+        SetWindowPos(f.Hwnd, 0, x, y, 0, 0, flags);
+        return 0;
     }
 
     void Place(Frame f, nint below)
@@ -181,6 +191,17 @@ sealed class PinnedFrames
         using var dark = target.CreateSolidColorBrush(new Color4(32 / 255f, 32 / 255f, 34 / 255f, Faint));
         using var ink = target.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, Faint));
         using var colour = target.CreateSolidColorBrush(new Color4(look.Colour.R / 255f, look.Colour.G / 255f, look.Colour.B / 255f, Faint));
+        if (look.Handle.W > 0)
+        {
+            var h = Local(look.Handle);
+            using var strip = target.CreateSolidColorBrush(new Color4(edgeTint.R, edgeTint.G, edgeTint.B, Math.Min(1, edgeTint.A * Faint * 1.6f)));
+            target.FillRectangle(h, strip);
+            using var chevron = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(10 * scale));
+            chevron.TextAlignment = TextAlignment.Center;
+            chevron.ParagraphAlignment = ParagraphAlignment.Center;
+            using var chevronInk = target.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, Faint));
+            target.DrawText(look.Edge < 0 ? "\uE76B" : "\uE76C", chevron, new Vortice.RawRectF(h.X, h.Y, h.X + h.Width, h.Y + h.Height), chevronInk);
+        }
         var swatch = Local(look.Swatch);
         target.FillEllipse(new Ellipse(new Vector2(swatch.X + swatch.Width / 2, swatch.Y + swatch.Height / 2), swatch.Width / 2, swatch.Height / 2), colour);
 
@@ -204,6 +225,14 @@ sealed class PinnedFrames
             target.FillEllipse(new Ellipse(new Vector2(r.X + r.Width / 2, r.Y + r.Height / 2), r.Width / 2, r.Height / 2), dark);
             target.DrawText(text, glyph, new Vortice.RawRectF(r.X, r.Y, r.X + r.Width, r.Y + r.Height), ink);
         }
+        if (look.Dock.W > 0)
+        {
+            // On: in the blue the front tab is in.
+            using var on = target.CreateSolidColorBrush(new Color4(46 / 255f, 110 / 255f, 220 / 255f, Faint + 0.2f));
+            var r = Local(look.Dock);
+            target.FillEllipse(new Ellipse(new Vector2(r.X + r.Width / 2, r.Y + r.Height / 2), r.Width / 2, r.Height / 2), look.KeepClear ? on : dark);
+            target.DrawText(look.DockRight ? DockRightGlyph : DockLeftGlyph, glyph, new Vortice.RawRectF(r.X, r.Y, r.X + r.Width, r.Y + r.Height), ink);
+        }
     }
 
     static Vec Cursor()
@@ -226,7 +255,9 @@ sealed class PinnedFrames
                         var p = Cursor();
                         var l = frame.Look;
                         var part = l.Swatch.Contains(p) ? PinnedFramePart.Colour : l.Pin.Contains(p) ? PinnedFramePart.Pin
+                            : l.Dock.W > 0 && l.Dock.Contains(p) ? PinnedFramePart.Dock
                             : l.Trash.Contains(p) ? PinnedFramePart.Trash : l.Label.Contains(p) ? PinnedFramePart.Label
+                            : l.Handle.W > 0 && l.Handle.Contains(p) ? PinnedFramePart.Edge
                             : l.Box.Contains(p) ? PinnedFramePart.Body : (PinnedFramePart?)null;
                         if (part is PinnedFramePart.Label or PinnedFramePart.Body)
                         {

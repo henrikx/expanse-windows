@@ -44,6 +44,8 @@ sealed class SavedGroup
     public double H { get; set; }
     /// Pinned to the screen (see Pinning): the box is in view space, and so are its apps' spots.
     public bool Pinned { get; set; }
+    /// Pinned: going to a window keeps clear of it (see CanvasGroup.KeepClear).
+    public bool KeepClear { get; set; }
     /// A pinned group's apps, to find again at launch. Null on the canvas, where they're the ones inside.
     public List<SavedWindow>? Apps { get; set; }
 }

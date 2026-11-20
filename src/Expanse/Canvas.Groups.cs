@@ -15,6 +15,10 @@ sealed class CanvasGroup(long id, string name, RectD box)
     public GroupColour Colour = GroupColours.Blue;
     /// Pinned (see Canvas.Pinning): its apps, and Box is then in view space. Null on the canvas.
     public List<CanvasWindow>? Pinned;
+    /// Pinned and slid out through a side of the screen (see Canvas.Pinning): where its box was. Box is then the slid one.
+    public RectD? SlideHome;
+    /// Pinned: going to a window keeps clear of it (the dock button), where it's at a side of the screen.
+    public bool KeepClear;
     /// Pinned, its apps as last saved that haven't joined it again since launch (ClaimForPinned).
     public List<SavedWindow>? Waiting;
 }
@@ -129,10 +133,16 @@ sealed partial class Canvas
 
     // MARK: Hit-testing
 
-    enum GroupPart { Colour, Label, Pin, Trash, Border, Body }
+    enum GroupPart { Colour, Label, Pin, Dock, Trash, Border, Body }
 
-    (RectD swatch, RectD label, RectD pin, RectD trash) LabelRects(CanvasGroup g, double k) =>
-        Groups.LabelRects(ViewBox(g), TextWidth(g.Name, k), k);
+    /// A pinned group has the dock button between the pin and the delete button.
+    (RectD swatch, RectD label, RectD pin, RectD dock, RectD trash) LabelRects(CanvasGroup g, double k)
+    {
+        var (swatch, label, pin, trash) = Groups.LabelRects(ViewBox(g), TextWidth(g.Name, k), k);
+        if (g.Pinned == null) return (swatch, label, pin, default, trash);
+        double step = pin.W + Math.Round(4 * k);
+        return (swatch, label, pin, pin.Offset(new Vec(step, 0)), trash.Offset(new Vec(step, 0)));
+    }
 
     /// What's under `p` of the groups, windows aside. Top group first: boxes don't overlap, but a
     /// label can reach over the group above it.
@@ -141,7 +151,7 @@ sealed partial class Canvas
         double k = UiScale;
         foreach (var g in groups)
         {
-            var (swatch, label, pin, trash) = LabelRects(g, k);
+            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
             if (swatch.Contains(p)) return (g, GroupPart.Colour, ResizeEdges.None);
             if (pin.Contains(p)) return (g, GroupPart.Pin, ResizeEdges.None);
             if (trash.Contains(p)) return (g, GroupPart.Trash, ResizeEdges.None);
@@ -253,7 +263,7 @@ sealed partial class Canvas
         if ((onLabel ?? GroupHitAt(p)) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
         return part switch
         {
-            GroupPart.Trash or GroupPart.Pin => LoadCursor(0, IDC_HAND),
+            GroupPart.Trash or GroupPart.Pin or GroupPart.Dock => LoadCursor(0, IDC_HAND),
             GroupPart.Colour when pictures.DrawsDecorations => LoadCursor(0, IDC_HAND),
             GroupPart.Border => LoadCursor(0, ResizeCursor(edges)),
             _ => 0,
@@ -351,6 +361,12 @@ sealed partial class Canvas
     /// A press with no window under it and no Ctrl or Shift. True if it started a drag.
     bool PressGroup(CanvasGroup g, GroupPart part, ResizeEdges edges, Vec p)
     {
+        // What's left of a pinned group slid out of the screen, wherever it's pressed, brings it back.
+        if (g.SlideHome != null)
+        {
+            SlideIn(g);
+            return false;
+        }
         // A selected group's body or label drags the whole selection, unless it's a rename.
         bool together = selectedGroups.Contains(g) && part is GroupPart.Body or GroupPart.Label;
         if (!together) ClearSelection();
@@ -364,6 +380,9 @@ sealed partial class Canvas
                 if (g.Pinned != null) UnpinGroup(g);
                 else PinGroup(g);
                 Redraw();
+                return false;
+            case GroupPart.Dock:
+                ToggleKeepClear(g);
                 return false;
             case GroupPart.Trash:
                 DeleteGroup(g);
@@ -520,7 +539,8 @@ sealed partial class Canvas
             FitToScreen(focus);
         }
         var open = windows.Where(w => !w.Maximised).ToList();
-        var area = GlideArea; // clear of the pinned groups at the screen's edges
+        // Clear of the pinned groups that keep clear (the dock button) at the screen's edges.
+        var area = GlideArea;
         var target = focus?.Maximised == true ? FocusCamera(focus)
             : new Camera(Stacks.GroupOrigin(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList(),
                 members.Select(m => open.IndexOf(m)).Where(i => i >= 0).ToList(), focus == null ? -1 : open.IndexOf(focus),
@@ -570,7 +590,7 @@ sealed partial class Canvas
     void StartRename(CanvasGroup g)
     {
         double k = UiScale;
-        var (_, label, _, _) = LabelRects(g, k);
+        var (_, label, _, _, _) = LabelRects(g, k);
         int x = (int)Math.Round(label.X) + monitor.Left, y = (int)Math.Round(label.Y) + monitor.Top;
         int w = (int)Math.Round(Math.Max(label.W, 180 * k)), h = (int)Math.Round(Math.Max(label.H, 24 * k));
         renameBox.Show(overlay.Hwnd, x, y, w, h, g.Name, k, (name, byKey) =>
@@ -595,7 +615,7 @@ sealed partial class Canvas
         foreach (var g in groups)
         {
             var box = camera.ToView(g.Box);
-            var (swatch, label, pin, trash) = LabelRects(g, k);
+            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
             if (!box.Intersects(View) && !label.Intersects(View) && !swatch.Intersects(View)) continue;
             drawings.Add(new GroupDrawing(g.Id, box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g || selectedGroups.Contains(g), g.Colour, Pinned: false));
         }
@@ -607,11 +627,26 @@ sealed partial class Canvas
 
     List<SavedGroup> SavedGroups()
     {
-        static SavedGroup Saved(CanvasGroup g, Guid? desktop) =>
+        static SavedGroup Saved(CanvasGroup g, Guid? desktop)
+        {
+            // Slid out, it's saved where it goes back to.
+            if (g.SlideHome is not RectD home) return SavedAt(g, desktop);
+            var by = home.Origin - g.Box.Origin;
+            var slid = g.Box;
+            g.Box = home;
+            foreach (var w in g.Pinned!) w.Frame = w.Frame.Offset(by);
+            try { return SavedAt(g, desktop); }
+            finally
+            {
+                g.Box = slid;
+                foreach (var w in g.Pinned!) w.Frame = w.Frame.Offset(new Vec(-by.X, -by.Y));
+            }
+        }
+        static SavedGroup SavedAt(CanvasGroup g, Guid? desktop) =>
             new()
             {
                 Name = g.Name, Desktop = desktop, Collapsed = g.Collapsed, Colour = g.Colour.Packed, X = g.Box.X, Y = g.Box.Y, W = g.Box.W, H = g.Box.H,
-                Pinned = g.Pinned != null,
+                Pinned = g.Pinned != null, KeepClear = g.KeepClear,
                 Apps = g.Pinned?.Select(LayoutStore.Entry).Concat(g.Waiting ?? []).ToList(),
             };
         return groups.Concat(pinnedGroups).Select(g => Saved(g, groupsAway.Here))
@@ -648,6 +683,7 @@ sealed partial class Canvas
             if (s.Pinned)
             {
                 g.Pinned = new();
+                g.KeepClear = s.KeepClear;
                 g.Waiting = s.Apps?.ToList() ?? new();
                 g.Box = Pinning.OnScreen(g.Box, PinnedRoom);
             }

@@ -43,6 +43,44 @@ public static class Pinning
     static RectD RestTo(RectD r, double? right = null, double? bottom = null) =>
         new(r.X, r.Y, Math.Min(r.Right, right ?? r.Right) - r.X, Math.Min(r.Bottom, bottom ?? r.Bottom) - r.Y);
 
+    /// How wide the strip along a snapped group's screen-side edge is, which slides it out when clicked.
+    /// Narrower than the padding apps are kept from the box's edge, so no app covers it.
+    public const double HandleWidth = 18;
+
+    /// How much of its apps' width stays on the screen when a group slides out.
+    public const double SlidShare = 0.1;
+
+    /// Which side of `work` (-1 left, 1 right, 0 neither) the group at `box` is snapped against: within
+    /// the reach of that edge, and of the two the nearer.
+    public static int SnappedSide(RectD box, RectD work, double k)
+    {
+        double reach = EdgeReach * k, left = box.X - work.X, right = work.Right - box.Right;
+        bool l = left <= reach && left >= -0.5, r = right <= reach && right >= -0.5;
+        return l && r ? (left <= right ? -1 : 1) : l ? -1 : r ? 1 : 0;
+    }
+
+    /// The strip along the side of `box` that's against the screen (`side`: -1 left, 1 right).
+    public static RectD Handle(RectD box, int side, double k)
+    {
+        double w = Math.Round(HandleWidth * k);
+        return new RectD(side < 0 ? box.X : box.Right - w, box.Y, w, box.H);
+    }
+
+    /// `box` slid out through the screen's `side`, so the padding on its inner side and about a tenth
+    /// of its apps' width stay in `work`.
+    public static RectD Slid(RectD box, int side, RectD work)
+    {
+        double pad = Groups.Padding, shown = pad + SlidShare * Math.Max(0, box.W - 2 * pad);
+        return box with { X = Layout.Round(side < 0 ? work.X - (box.W - shown) : work.Right - shown) };
+    }
+
+    /// The part of `box` on `work`, for taking room from glides while it's slid out.
+    public static RectD Visible(RectD box, RectD work)
+    {
+        double x = Math.Max(box.X, work.X), y = Math.Max(box.Y, work.Y);
+        return new RectD(x, y, Math.Max(0, Math.Min(box.Right, work.Right) - x), Math.Max(0, Math.Min(box.Bottom, work.Bottom) - y));
+    }
+
     /// `spot` moved onto `view` as far as it fits: from its top-left if it's bigger.
     public static RectD OnScreen(RectD spot, RectD view)
     {

@@ -214,7 +214,7 @@ sealed partial class Canvas
         lastFocusedWindow = GetForegroundWindow();
     }
 
-    public bool IsAnimating => animation != null || pinMove != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0 || warmQueue.Count > 0 || warmingSome || decorationsFadingIn || canvasDecorationsRising;
+    public bool IsAnimating => animation != null || pinMove != null || GroupSolidityMoving || ColourWheelGrowing || liftQueue.Count > 0 || warmQueue.Count > 0 || warmingSome || decorationsFadingIn || canvasDecorationsRising || slideMove != null;
 
     /// The primary screen and its work area (or, with `screen W H`, a pretend smaller one at its
     /// top-left).
@@ -1274,6 +1274,8 @@ sealed partial class Canvas
     void FocusSettled()
     {
         nint hwnd = GetForegroundWindow();
+        // Into one of a slid group's apps (a click on what shows of it, Alt-Tab): the group comes back.
+        if (!paused && PinnedAppOf(hwnd) is CanvasWindow slidApp && PinnedGroupOf(slidApp) is { SlideHome: not null } slid) SlideIn(slid);
         if (!paused && PinnedFocusZoomedOut(hwnd)) return;
         if (paused || active || animation != null || hwnd == 0) return;
         KeepOtherMonitorsAbove();
@@ -2702,6 +2704,7 @@ sealed partial class Canvas
         // Not under a window you're dragging across: it would end up behind them. The sync after
         // the drop comes back here.
         if (paused || active || UserDragging) return;
+        KeepOthersOverSlid();
         var (spilling, others, covered) = ReadStacking();
         if (spilling.Count == 0) return;
         Log.Info($"other monitors: canvas windows reaching them: {Listed(spilling)}; their own windows: {Listed(others)}; covered: {covered}");
@@ -2945,7 +2948,7 @@ sealed partial class Canvas
         double ax = work.Left - monitor.Left, ay = work.Top - monitor.Top;
         // Maximised: exactly where maximised windows sit (Place maximises it there).
         if (w.Maximised) return new Camera(new Vec(Math.Round(w.Frame.X - ax), Math.Round(w.Frame.Y - ay)), 1);
-        // Clear of the pinned groups at the screen's edges.
+        // Clear of the pinned groups that keep clear (the dock button) at the screen's edges.
         var area = GlideArea;
         double x = area.X + (area.W - w.Frame.W) / 2;
         double y = w.Frame.H > area.H ? area.Y : area.Y + (area.H - w.Frame.H) / 2;
@@ -3025,6 +3028,7 @@ sealed partial class Canvas
         else liftQueue.Clear();
         if (active && (warmingSome || warmQueue.Count > 0)) WarmSome();
         if (pinMove != null) StepPinMove();
+        if (slideMove != null) StepSlide();
         var a = animation;
         if (a == null)
         {
@@ -3665,6 +3669,7 @@ sealed partial class Canvas
             Pill(g.Label, g.Name);
             nint textFont = Gdi32.SelectObject(hdc, glyph);
             Pill(g.Pin, g.Pinned ? "\uE840" : "\uE718");
+            if (g.Dock.W > 0) Pill(g.Dock, g.DockRight ? PinnedFrames.DockRightGlyph : PinnedFrames.DockLeftGlyph);
             Pill(g.Trash, "\uE74D");
             Gdi32.SelectObject(hdc, textFont);
         }

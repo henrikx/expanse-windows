@@ -296,6 +296,11 @@ public static class User32
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint GetAncestor(nint hwnd, uint flags);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint GetWindow(nint hwnd, uint cmd);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint GetLastActivePopup(nint hwnd);
+    [DllImport(Dll)] public static extern int SetWindowRgn(nint hwnd, nint region, bool redraw);
+    [DllImport("gdi32.dll")] public static extern nint CreateRectRgn(int left, int top, int right, int bottom);
+    [DllImport(Dll)] public static extern nint BeginDeferWindowPos(int count);
+    [DllImport(Dll)] public static extern nint DeferWindowPos(nint batch, nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
+    [DllImport(Dll)] public static extern bool EndDeferWindowPos(nint batch);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool GetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);

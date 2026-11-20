@@ -53,7 +53,21 @@ sealed partial class Canvas
     RectD ViewBox(CanvasGroup g) => g.Pinned != null ? g.Box : camera.ToView(g.Box);
 
     /// Where going to a window puts it: the work area, less the strips pinned groups at its edges take.
-    RectD GlideArea => Pinning.Reserve(WorkView, pinnedGroups.Select(g => g.Box), UiScale);
+    /// -1 where its middle is in the left half of the screen, 1 in the right: the side its dock button points to.
+    int DockSide(CanvasGroup g) => g.Box.MidX < WorkView.MidX ? -1 : 1;
+
+    /// The dock button: whether going to a window keeps clear of this group (where it's at a side of the screen).
+    void ToggleKeepClear(CanvasGroup g)
+    {
+        g.KeepClear = !g.KeepClear;
+        Log.Info($"pinned group \"{g.Name}\": going to a window {(g.KeepClear ? "keeps clear of it" : "goes under it")}");
+        ScheduleSave();
+        if (active) Redraw();
+        else UpdatePinnedFrames();
+    }
+
+    /// A group slid out takes only the strip of it still on the screen.
+    RectD GlideArea => Pinning.Reserve(WorkView, pinnedGroups.Where(g => g.KeepClear || g.SlideHome != null).Select(g => g.SlideHome != null ? Pinning.Visible(g.Box, WorkView) : g.Box), UiScale);
 
     /// Where a pinned group's box may be: the work area, less the room its name row takes above it.
     RectD PinnedRoom
@@ -104,10 +118,72 @@ sealed partial class Canvas
         if (active && pinMove?.Apps.Any(a => a.w == w) != true) pictures.Moved(w, camera, View);
     }
 
+    /// Pinned apps to their spots, and a pinned group's frame (`frameId`) by `frameBy`, all in one go
+    /// so they move together, not one behind the other. A hung app is moved on its own, not waited on.
+    void PlaceTogether(IReadOnlyList<(CanvasWindow w, RectD view)> apps, long frameId, Vec frameBy)
+    {
+        var live = apps.Where(a => IsWindow(a.w.Hwnd) && !IsHungAppWindow(a.w.Hwnd)).ToList();
+        nint batch = BeginDeferWindowPos(live.Count + 1);
+        foreach (var (w, view) in apps)
+        {
+            w.Frame = view;
+            int x = (int)Math.Round(view.X) + monitor.Left - w.Insets.Left, y = (int)Math.Round(view.Y) + monitor.Top - w.Insets.Top;
+            w.Placed = new POINT(x + w.Insets.Left, y + w.Insets.Top);
+            const uint flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+            if (batch != 0 && live.Any(a => a.w == w)) batch = DeferWindowPos(batch, w.Hwnd, 0, x, y, 0, 0, flags);
+            else SetWindowPos(w.Hwnd, 0, x, y, 0, 0, flags | SWP_ASYNCWINDOWPOS);
+            if (active && pinMove?.Apps.Any(a => a.w == w) != true) pictures.Moved(w, camera, View);
+        }
+        if (frameId != 0) batch = pinnedFrames.MoveBy(frameId, frameBy, batch);
+        if (batch != 0) EndDeferWindowPos(batch);
+    }
+
+    /// The other monitors' windows put over a slid-out group, and whether each was always-on-top already.
+    readonly Dictionary<nint, bool> raisedOthers = new();
+
+    /// A slid-out group's apps and frame reach onto the monitor beside the screen's side, over its windows
+    /// (they're always-on-top). Canvas windows there go behind that monitor's own; these, being on top
+    /// of everything, can't, so those windows go always-on-top too, raised after them: above the group.
+    /// They go back once nothing of theirs is under a slid group. Not while the overlay is up, which
+    /// covers the main screen only, where the apps are drawn as pictures.
+    void KeepOthersOverSlid()
+    {
+        var spill = new List<RectD>();
+        if (!paused && !active)
+            foreach (var g in pinnedGroups.Where(g => g.SlideHome != null))
+            {
+                var box = g.Box.Offset(new Vec(monitor.Left, monitor.Top));
+                if (box.X < monitor.Left || box.Right > monitor.Right || box.Y < monitor.Top || box.Bottom > monitor.Bottom) spill.Add(box);
+            }
+        var over = new List<nint>();
+        if (spill.Count > 0)
+            EnumWindows((h, _) =>
+            {
+                if (!elsewhere.Contains(h) || !IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h) || IsHungAppWindow(h)) return true;
+                var f = Dwm.FrameBounds(h).ToRectD();
+                if (spill.Any(s => s.Intersects(f))) over.Add(h); // top first
+                return true;
+            }, 0);
+        const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        foreach (nint h in raisedOthers.Keys.Where(h => !over.Contains(h)).ToList())
+        {
+            raisedOthers.Remove(h, out bool was);
+            if (!was && IsWindow(h)) SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+        }
+        // Bottom first, so they stay in their own order.
+        for (int i = over.Count - 1; i >= 0; i--)
+        {
+            raisedOthers.TryAdd(over[i], (ExStyle(over[i]) & WS_EX_TOPMOST) != 0);
+            SetWindowPos(over[i], HWND_TOPMOST, 0, 0, 0, 0, flags);
+        }
+    }
+
     /// Back to ordinary windows, for quitting, pausing or handing over: the next run pins them again
     /// (ClaimForPinned).
     void LetGoOfPinned()
     {
+        SlideAllIn();
+        KeepOthersOverSlid();
         foreach (var w in PinnedApps.Concat(pinnedAway.Away.SelectMany(a => a.Item.Pinned!)).ToList()) SetOnTop(w, false);
     }
 
@@ -127,7 +203,7 @@ sealed partial class Canvas
     void KeepPinned(CanvasWindow w)
     {
         w.Title = Title(w.Hwnd);
-        if (pinMove?.Apps.Any(a => a.w == w) == true) return; // still getting there
+        if (pinMove?.Apps.Any(a => a.w == w) == true || slideMove?.Apps.Any(a => a.w == w) == true) return; // still getting there
         w.Frame = ViewFrame(w.ReadScreenFrame());
     }
 
@@ -196,6 +272,19 @@ sealed partial class Canvas
         var g = PinnedGroupOf(w)!;
         var f = w.ReadScreenFrame();
         var view = ViewFrame(f);
+        // Slid out through the screen's side, it's mostly off the screen, on the monitor there maybe: resized
+        // or moved within its box, it's still in the group.
+        if (g.SlideHome is RectD home && g.Box.Contains(view.Center))
+        {
+            w.Frame = view;
+            var by = home.Origin - g.Box.Origin;
+            g.Box = g.Box.Union(Groups.Fit([view]));
+            g.SlideHome = home.Union(Groups.Fit([view.Offset(by)]));
+            ScheduleSave();
+            if (active) Redraw();
+            else UpdatePinnedFrames();
+            return;
+        }
         if (Screens.CentreElsewhere(f.ToRectD(), monitor.ToRectD(), OtherMonitorRects))
         {
             g.Pinned!.Remove(w);
@@ -269,6 +358,84 @@ sealed partial class Canvas
         w.Placed = null;
     }
 
+    // MARK: Sliding out of the screen's side
+
+    /// A pinned group snapped against the left or right of the screen sliding out through it, until
+    /// about a tenth of its apps shows, or back in (a click on the strip along that side, on what's
+    /// left of it, or on one of its apps).
+    sealed class SlideMove
+    {
+        public required CanvasGroup Group;
+        public required RectD From, To;
+        public required bool Out;
+        public required List<(CanvasWindow w, RectD start)> Apps;
+        public readonly long Start = Stopwatch.GetTimestamp();
+    }
+    SlideMove? slideMove;
+    const double SlideSeconds = 0.22;
+
+    void SlideOut(CanvasGroup g)
+    {
+        if (g.Pinned == null || g.SlideHome != null || pinMove != null) return;
+        FinishSlide();
+        int side = Pinning.SnappedSide(g.Box, WorkView, UiScale);
+        if (side == 0) return;
+        var to = Pinning.Slid(g.Box, side, WorkView);
+        Log.Info($"pinned group \"{g.Name}\" slides out {(side < 0 ? "left" : "right")}");
+        g.SlideHome = g.Box;
+        slideMove = new SlideMove { Group = g, From = g.Box, To = to, Out = true, Apps = g.Pinned.Select(w => (w, w.Frame)).ToList() };
+        StepSlide();
+    }
+
+    void SlideIn(CanvasGroup g, bool now = false)
+    {
+        if (g.SlideHome is not RectD home) return;
+        if (slideMove?.Group == g) FinishSlide();
+        Log.Info($"pinned group \"{g.Name}\" slides back in");
+        g.SlideHome = null;
+        slideMove = new SlideMove { Group = g, From = g.Box, To = home, Out = false, Apps = g.Pinned!.Select(w => (w, w.Frame)).ToList() };
+        if (now) FinishSlide();
+        else StepSlide();
+    }
+
+    bool Sliding => slideMove != null;
+
+    void StepSlide()
+    {
+        if (slideMove is not SlideMove m) return;
+        double t = Math.Min(1, Stopwatch.GetElapsedTime(m.Start).TotalSeconds / SlideSeconds);
+        MoveSlide(m, Pinning.Between(m.From, m.To, Easing.Ease(t)));
+        if (t >= 1) FinishSlide();
+    }
+
+    void MoveSlide(SlideMove m, RectD box)
+    {
+        var g = m.Group;
+        var by = box.Origin - m.From.Origin;
+        var moved = box.Origin - g.Box.Origin;
+        g.Box = box;
+        PlaceTogether(m.Apps.Select(a => (a.w, a.start.Offset(by))).ToList(), active ? 0 : g.Id, moved);
+        if (active) Redraw();
+    }
+
+    /// The slide done now: where it was going, and its frame drawn again for how it stands.
+    void FinishSlide()
+    {
+        if (slideMove is not SlideMove m) return;
+        slideMove = null;
+        MoveSlide(m, m.To);
+        ScheduleSave();
+        if (!active) UpdatePinnedFrames();
+        KeepOthersOverSlid();
+    }
+
+    /// Every slid group back where it was, at once: before the apps are let go of, so none is left off the screen.
+    void SlideAllIn()
+    {
+        FinishSlide();
+        foreach (var g in pinnedGroups.Concat(pinnedAway.Away.Select(a => a.Item)).ToList()) SlideIn(g, now: true);
+    }
+
     // MARK: Pinning and unpinning
 
     /// The pin button on a group on the canvas: it comes off the canvas and stays on the screen at
@@ -305,6 +472,7 @@ sealed partial class Canvas
     void UnpinGroup(CanvasGroup g)
     {
         FinishPinMove();
+        SlideIn(g, now: true);
         var spot = g.Box;
         var c = camera.ToCanvas(spot.Center);
         var box = Pinning.Land(new RectD(Layout.Round(c.X - spot.W / 2), Layout.Round(c.Y - spot.H / 2), spot.W, spot.H),
@@ -399,7 +567,7 @@ sealed partial class Canvas
         d.Moved = true;
         g.Box = Pinning.OnScreen(Groups.Move(g.Box, d.StartBox.Offset(delta), others), PinnedRoom);
         var by = g.Box.Origin - d.StartBox.Origin;
-        foreach (var (w, start) in d.Moving) PlacePinned(w, start.Offset(by));
+        PlaceTogether(d.Moving.Select(m => (m.w, m.start.Offset(by))).ToList(), 0, default);
         Redraw();
     }
 
@@ -465,8 +633,7 @@ sealed partial class Canvas
             var by = moved.Origin - g.Box.Origin;
             if (by == default) return;
             g.Box = moved;
-            foreach (var (w, start) in apps) PlacePinned(w, start.Offset(moved.Origin - box.Origin));
-            pinnedFrames.MoveBy(g.Id, by);
+            PlaceTogether(apps.Select(a => (a.w, a.start.Offset(moved.Origin - box.Origin))).ToList(), g.Id, by);
         };
         pinnedFrames.Released = () =>
         {
@@ -485,8 +652,20 @@ sealed partial class Canvas
     {
         if (paused || active || pinnedGroups.FirstOrDefault(g => g.Id == id) is not CanvasGroup g) return;
         Log.Info($"pinned group \"{g.Name}\": {part} pressed at 100%");
+        // What's left of a slid group, wherever it's pressed, brings it back.
+        if (g.SlideHome != null)
+        {
+            SlideIn(g);
+            return;
+        }
         switch (part)
         {
+            case PinnedFramePart.Edge:
+                SlideOut(g);
+                break;
+            case PinnedFramePart.Dock:
+                ToggleKeepClear(g);
+                break;
             case PinnedFramePart.Pin:
                 UnpinGroup(g);
                 UpdatePinnedFrames();
@@ -517,9 +696,11 @@ sealed partial class Canvas
         var wanted = new List<(PinnedFrameLook, nint)>();
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, trash) = LabelRects(g, k);
+            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
+            int side = g.SlideHome == null ? Pinning.SnappedSide(g.Box, WorkView, k) : 0;
+            var handle = side == 0 ? default : Pinning.Handle(g.Box, side, k).Offset(screen);
             wanted.Add((new PinnedFrameLook(g.Id, g.Box.Offset(screen), g.Name, swatch.Offset(screen), label.Offset(screen),
-                pin.Offset(screen), trash.Offset(screen), g.Colour), LowestPinned(g)));
+                pin.Offset(screen), trash.Offset(screen), g.Colour, handle, side, dock.Offset(screen), g.KeepClear, DockSide(g) > 0), LowestPinned(g)));
         }
         pinnedFrames.Show(wanted, k);
     }
@@ -566,7 +747,7 @@ sealed partial class Canvas
     /// The screen changed size: pinned groups come back onto it.
     void KeepPinnedOnScreen()
     {
-        foreach (var g in pinnedGroups)
+        foreach (var g in pinnedGroups.Where(g => g.SlideHome == null))
         {
             var moved = Pinning.OnScreen(g.Box, PinnedRoom);
             if (moved == g.Box) continue;
@@ -585,9 +766,10 @@ sealed partial class Canvas
         double k = UiScale;
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, trash) = LabelRects(g, k);
+            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
             if (swatch.Contains(p)) return (g, GroupPart.Colour, ResizeEdges.None);
             if (pin.Contains(p)) return (g, GroupPart.Pin, ResizeEdges.None);
+            if (dock.Contains(p)) return (g, GroupPart.Dock, ResizeEdges.None);
             if (trash.Contains(p)) return (g, GroupPart.Trash, ResizeEdges.None);
             if (label.Contains(p)) return (g, GroupPart.Label, ResizeEdges.None);
         }
@@ -604,9 +786,10 @@ sealed partial class Canvas
     {
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, trash) = LabelRects(g, k);
+            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
             // Growing to its spot, its apps are still pictures: its box stays under them till they're there.
-            drawings.Add(new GroupDrawing(g.Id, g.Box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g, g.Colour, Pinned: pinMove?.Group != g));
+            drawings.Add(new GroupDrawing(g.Id, g.Box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g, g.Colour, Pinned: pinMove?.Group != g,
+                Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0));
         }
     }
 }
