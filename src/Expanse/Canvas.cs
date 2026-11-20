@@ -2171,7 +2171,9 @@ sealed partial class Canvas
         stackBars?.Hide();
         active = true;
         gliding = !zoomOut;
-        // The tabs and pinned frames at 100% give way to the overlay's, which fade out (Redraw).
+        // The tabs and pinned frames at 100% give way to the overlay's, which fade out (Redraw). A fade-in
+        // still going from the last hand-back would bring them back under it.
+        decorationsFadingIn = false;
         SetDecorationAlpha(0);
         if (gliding) BeginGlideFade(fromCanvas: false);
         // Moving the canvas from 100% (not zooming out): the groups and the rest come in softly.
@@ -2723,7 +2725,7 @@ sealed partial class Canvas
         // The plain request can be ignored while another app is in front. Going always-on-top and
         // straight back is a stronger way to the top of the ordinary windows.
         const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
-        var bottomFirst = others.Select(o => o.hwnd).Reverse().Where(h => !IsHungAppWindow(h)).ToList();
+        var bottomFirst = others.Select(o => o.hwnd).Reverse().Where(h => !IsHungAppWindow(h) && !raisedOthers.ContainsKey(h)).ToList();
         foreach (var h in bottomFirst) SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, flags);
         if (!ReadStacking().covered) { Log.Info("other monitors: raised"); return; }
         foreach (var h in bottomFirst)

@@ -81,6 +81,8 @@ sealed class PinnedFrames
         foreach (var f in byId.Values) UpdateLayeredWindowBlend(f.Hwnd, 0, 0, 0, 0, 0, 0, ref blend, ULW_ALPHA);
     }
 
+    public IEnumerable<nint> Hwnds => byId.Values.Select(f => f.Hwnd);
+
     public void Hide()
     {
         foreach (var f in byId.Values) DestroyWindow(f.Hwnd);

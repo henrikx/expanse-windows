@@ -155,13 +155,16 @@ sealed partial class Canvas
                 var box = g.Box.Offset(new Vec(monitor.Left, monitor.Top));
                 if (box.X < monitor.Left || box.Right > monitor.Right || box.Y < monitor.Top || box.Bottom > monitor.Bottom) spill.Add(box);
             }
+        // All of the windows on the monitor a group reaches, not only the ones it covers: one beside a
+        // raised one can't be brought above it by a click, if it isn't raised too.
+        var reached = otherMonitors.Where(m => spill.Any(s => s.Intersects(m.ToRectD()))).Select(m => m.ToRectD()).ToList();
         var over = new List<nint>();
-        if (spill.Count > 0)
+        if (reached.Count > 0)
             EnumWindows((h, _) =>
             {
                 if (!elsewhere.Contains(h) || !IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h) || IsHungAppWindow(h)) return true;
                 var f = Dwm.FrameBounds(h).ToRectD();
-                if (spill.Any(s => s.Intersects(f))) over.Add(h); // top first
+                if (reached.Any(r => r.Intersects(f))) over.Add(h); // top first
                 return true;
             }, 0);
         const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
@@ -170,12 +173,43 @@ sealed partial class Canvas
             raisedOthers.Remove(h, out bool was);
             if (!was && IsWindow(h)) SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
         }
-        // Bottom first, so they stay in their own order.
-        for (int i = over.Count - 1; i >= 0; i--)
+        if (over.Count == 0) return;
+        // Once raised, they keep their order among themselves as you click about (Windows sees to it), so
+        // nothing's done unless a window is new to them, or a pinned app or frame has come over one. Then
+        // all at once, in one go: one by one, each showed on top for a moment, and they flashed.
+        var fresh = over.Where(h => !raisedOthers.ContainsKey(h)).ToList();
+        if (fresh.Count == 0 && !PinnedOverRaised()) return;
+        nint front = GetForegroundWindow();
+        foreach (nint h in fresh)
         {
-            raisedOthers.TryAdd(over[i], (ExStyle(over[i]) & WS_EX_TOPMOST) != 0);
-            SetWindowPos(over[i], HWND_TOPMOST, 0, 0, 0, 0, flags);
+            raisedOthers[h] = (ExStyle(h) & WS_EX_TOPMOST) != 0;
+            SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, flags);
         }
+        // Their order as it was, but one you've just chosen that wasn't among them goes on top.
+        if (fresh.Contains(front) && over.Remove(front)) over.Insert(0, front);
+        nint batch = BeginDeferWindowPos(over.Count);
+        for (int i = 0; i < over.Count && batch != 0; i++)
+            batch = DeferWindowPos(batch, over[i], i == 0 ? HWND_TOPMOST : over[i - 1], 0, 0, 0, 0, flags);
+        if (batch != 0) EndDeferWindowPos(batch);
+    }
+
+    /// A pinned app or frame is above one of the windows raised over slid groups, and over it.
+    bool PinnedOverRaised()
+    {
+        var pinned = PinnedApps.Select(w => w.Hwnd).Concat(pinnedFrames.Hwnds).ToHashSet();
+        var seen = new List<RectD>();
+        bool covered = false;
+        EnumWindows((h, _) =>
+        {
+            if (pinned.Contains(h) && IsWindowVisible(h) && !IsIconic(h)) seen.Add(Dwm.FrameBounds(h).ToRectD());
+            else if (raisedOthers.ContainsKey(h) && seen.Any(r => r.Intersects(Dwm.FrameBounds(h).ToRectD())))
+            {
+                covered = true;
+                return false;
+            }
+            return true;
+        }, 0);
+        return covered;
     }
 
     /// Back to ordinary windows, for quitting, pausing or handing over: the next run pins them again
@@ -392,7 +426,9 @@ sealed partial class Canvas
     void SlideIn(CanvasGroup g, bool now = false)
     {
         if (g.SlideHome is not RectD home) return;
-        if (slideMove?.Group == g) FinishSlide();
+        // Any slide still going, this group's or another's, ends where it was going first: replaced, it
+        // would stop half way.
+        FinishSlide();
         slidDragged.Clear();
         Log.Info($"pinned group \"{g.Name}\" slides back in");
         g.SlideHome = null;
