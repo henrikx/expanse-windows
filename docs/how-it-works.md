@@ -156,7 +156,14 @@ one whose windows can't be told apart by title as it opens again. It gives each 
 of marks (`AppMarks`), saved with the window's spot, and a window goes to the spot whose marks are
 most like its own. A window of an app that has just started waits where it opened until its support
 knows it and the app has stopped moving its windows, or its patience runs out; moving it yourself ends the wait. A support that fails is dropped
-until the next launch. No app has one yet.
+until the next launch.
+
+**Firefox** (`FirefoxSupport`) opens all the windows it restores empty, and fills them afterwards; it
+gives them no lasting id. Its session file (`sessionstore.jsonlz4`, or in `sessionstore-backups` while
+it runs; rewritten every 15 seconds) has each window's tabs. A window's marks are hashes of its tabs'
+addresses, keyed by a random `marks.key` beside the layout. Which window on the screen is which in the
+file goes by its tabs so far, then the title of the tab it's on, and between equal titles, position
+(`FirefoxWindows`). The file is only read, on another thread, and nothing of it is logged.
 
 ## Updates
 

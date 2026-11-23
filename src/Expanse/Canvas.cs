@@ -587,13 +587,17 @@ sealed partial class Canvas
         };
         string? before = lastSavedJson;
         lastSavedJson = LayoutStore.Save(layout, lastSavedJson);
-        if (lastSavedJson != before && DateTime.Now - lastSnapshotAt >= LayoutStore.SnapshotSpacing) Snapshot(layout);
+        if (lastSavedJson != before && LayoutStore.Shape(lastSavedJson) != snapshotShape && DateTime.Now - lastSnapshotAt >= LayoutStore.SnapshotSpacing) Snapshot(layout);
         lastLayout = layout;
     }
+
+    /// The layout of the last snapshot (LayoutStore.Shape): no other is taken of the same one.
+    string? snapshotShape;
 
     void Snapshot(SavedLayout layout)
     {
         LayoutStore.SaveSnapshot(layout);
+        snapshotShape = LayoutStore.Shape(lastSavedJson);
         lastSnapshotAt = DateTime.Now;
         Log.Info("layout snapshot taken");
     }

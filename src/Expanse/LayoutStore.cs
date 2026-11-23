@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using static Expanse.Native.User32;
 
 namespace Expanse;
@@ -78,7 +79,7 @@ sealed class SavedWindow
     public List<string>? Marks { get; set; }
 }
 
-static class LayoutStore
+static partial class LayoutStore
 {
     static string File => Path.Combine(Log.Folder, "layout.json");
     static readonly JsonSerializerOptions json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -104,6 +105,12 @@ static class LayoutStore
         }
         catch (IOException e) { Log.Info($"layout: couldn't save: {e.Message}"); return last; }
     }
+
+    /// A layout's JSON without what its windows are told by: the same for one whose windows only show
+    /// something else now.
+    public static string? Shape(string? text) => text == null ? null : Told().Replace(text, "");
+
+    [GeneratedRegex(@"""(title"": ""[^""]*""|marks"": \[[^\]]*\])")] private static partial Regex Told();
 
     /// Window titles can be private (document names, mail subjects), so the layout file stores
     /// a hash: enough to recognise the same window next time, not to read the title.

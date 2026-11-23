@@ -242,7 +242,9 @@ them. The one network request is a daily update check to GitHub, which you can t
 › Check for Updates Automatically). Expanse's files are in `%LOCALAPPDATA%\Expanse`: its layouts
 (window positions and sizes, app names, and a scrambled fingerprint, a hash, of each window's
 title, which recognises the window without storing the title), its settings, and where your windows
-were before Expanse moved them, so they can go back. With **Detailed Logging** on, its log goes
+were before Expanse moved them, so they can go back. To tell Firefox's windows apart when it restores them,
+it reads Firefox's own session file on your PC and stores fingerprints of the open tabs' addresses,
+mixed with a random key (`marks.key`), never the addresses themselves. With **Detailed Logging** on, its log goes
 there too (`expanse.log`, at most 5 MB): what it did with which app's windows, never their titles.
 It stays on your PC unless you copy it into a bug report yourself. In the registry, Expanse adds its
 `expanse://` link and, with Open at Login on, a startup entry.

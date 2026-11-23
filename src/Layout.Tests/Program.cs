@@ -46,6 +46,7 @@ VersionTests.Run(Expect);
 FocusRuleTests.Run(Expect);
 GlideTests.Run(Expect);
 SavedSpotTests.Run(Expect);
+FirefoxTests.Run(Expect);
 SlowAppTests.Run(Expect);
 StackTests.Run(Expect);
 ResizeTests.Run(Expect);

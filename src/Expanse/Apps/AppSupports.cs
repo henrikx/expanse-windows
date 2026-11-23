@@ -4,7 +4,7 @@ namespace Expanse;
 /// as any other app's.
 sealed class AppSupports
 {
-    readonly List<IAppSupport> all = [];
+    readonly List<IAppSupport> all = [new FirefoxSupport()];
 
     public void Start(Action changed)
     {
