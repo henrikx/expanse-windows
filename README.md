@@ -123,7 +123,7 @@ start it with Windows.
 | Double-click a group's border | Shrink its box to the smallest that fits its apps where they are |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
 | Right-click an app in no group | Go into it, as a click does |
-| Click the `>_` by a group's name | Open its command drawer. Click a tile to start that command, or **Run all**; the pencil on a tile edits it and **+** adds one. <kbd>Esc</kbd> or a click elsewhere closes it |
+| Click the `>_` by a group's name | Open its command drawer. Click a tile to start that command, or **Run all**; the pencil on a tile edits it and **+** adds one. <kbd>Esc</kbd>, the `>_` again or a click on empty canvas closes it; until then it stays open while you move things around it |
 | Click the pin by a group's name | Pin the group to the screen, or put it back on the canvas |
 | Double-click a group's name · click its garbage can | Rename it · delete it (its apps stay open) |
 | Click the coloured circle by a group's name | Open a colour wheel: press or drag on it to recolour the group, and let go to keep the colour. <kbd>Esc</kbd> or a click elsewhere leaves it as it was |

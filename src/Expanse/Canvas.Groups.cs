@@ -304,13 +304,22 @@ sealed partial class Canvas
     /// The window a right press landed on, if nothing sits over it there.
     void PressRight(Vec p)
     {
-        if (colourWheelGroup != null || drawerGroup != null)
+        if (colourWheelGroup != null)
         {
             CancelColourWheel();
-            CloseDrawer(save: true);
             rightPressed = null;
             Redraw();
             return;
+        }
+        if (DrawerAt(p).part != DrawerPart.None)
+        {
+            rightPressed = null;
+            return;
+        }
+        if (DrawerEditing)
+        {
+            EndCommandEdit(save: true);
+            Redraw();
         }
         bool covered = NewGroupRect(UiScale)?.Contains(p) == true || OverStackBar(p) || TreePanel.Contains(p)
             || minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p);
@@ -386,7 +395,8 @@ sealed partial class Canvas
                 if (pictures.DrawsDecorations) OpenColourWheel(g);
                 return false;
             case GroupPart.Commands:
-                OpenDrawer(g);
+                if (drawerGroup == g) CloseDrawer(save: true);
+                else OpenDrawer(g);
                 return false;
             case GroupPart.Pin:
                 if (g.Pinned != null) UnpinGroup(g);

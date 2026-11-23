@@ -19,7 +19,8 @@ sealed class GroupCommand(string name, string line)
 }
 
 /// A group's command drawer: the >_ by its label opens it, and a tile starts a command, whose window
-/// goes into the group. It closes on Esc, a click outside it, or leaving the canvas.
+/// goes into the group. The canvas works as ever round it, so you can arrange what
+/// it starts. It closes on Esc, the >_ again, a click on empty canvas, or leaving the canvas.
 sealed partial class Canvas
 {
     /// A command started, and the window it's waiting for.
@@ -100,14 +101,19 @@ sealed partial class Canvas
 
     RECT OnScreen(RectD r) => new((int)r.X + monitor.Left, (int)r.Y + monitor.Top, (int)r.Right + monitor.Left, (int)r.Bottom + monitor.Top);
 
-    /// True if the drawer was open: the press is on it, or it just closes it and does nothing else.
+    /// True if the press is on the drawer. One elsewhere does what it does there, and first ends an edit,
+    /// as clicking away from a rename does.
     bool PressDrawer(Vec p)
     {
         if (drawerGroup is not CanvasGroup g) return false;
         var (part, tile) = DrawerAt(p);
         switch (part)
         {
-            case DrawerPart.None: CloseDrawer(save: true); break;
+            case DrawerPart.None:
+                if (!DrawerEditing) return false;
+                EndCommandEdit(save: true);
+                Redraw();
+                return false;
             case DrawerPart.Panel: commandBox.Refocus(); break; // or Enter and Esc would be the canvas's
             case DrawerPart.Tile: RunCommand(g, g.Commands[tile]); break;
             case DrawerPart.Edit: EditCommand(g.Commands[tile]); break;

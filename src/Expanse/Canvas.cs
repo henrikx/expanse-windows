@@ -1688,6 +1688,8 @@ sealed partial class Canvas
         drag = null;
         ReleaseCapture();
         ShowGuides(new());
+        // A click on empty canvas, not a drag there that selects.
+        if (click && d.What == DragKind.Marquee && !(marquee is RectD drawn && Math.Max(drawn.W, drawn.H) >= 3)) CloseDrawer(save: true);
         marquee = null;
         minimap.Frozen = false;
         switch (d.What)
