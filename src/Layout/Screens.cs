@@ -12,4 +12,17 @@ public static class Screens
     /// every screen isn't: left alone it would be out of reach.
     public static bool IsElsewhere(RectD frame, RectD main, IReadOnlyList<RectD> others) =>
         CentreElsewhere(frame, main, others) || (!frame.Intersects(main) && others.Any(frame.Intersects));
+
+    /// Whether a canvas window lies over another monitor's own (`theirs`), of these windows, the top
+    /// one first, with `front` (canvas windows about to be brought to the front) over them all.
+    public static bool Covers(IEnumerable<(RectD frame, bool theirs)> topFirst, IEnumerable<RectD> front)
+    {
+        var canvas = front.ToList();
+        foreach (var (frame, theirs) in topFirst)
+        {
+            if (!theirs) canvas.Add(frame);
+            else if (canvas.Any(frame.Intersects)) return true;
+        }
+        return false;
+    }
 }

@@ -2673,8 +2673,6 @@ sealed partial class Canvas
         FinishPinMove();
         liftQueue.Clear(); // Commit saves the originals of any lifted
         liftedSinceSave = 0;
-        int moved = Commit();
-        int waited = WaitForMoves();
         // In a pinned app (you clicked it, or were in it before zooming out), you stay in it. Not in one slid
         // out since: focus would bring its group back in.
         bool Slid(CanvasWindow w) => PinnedGroupOf(w)?.SlideHome != null;
@@ -2682,6 +2680,9 @@ sealed partial class Canvas
         pinnedFocus = null;
         var target = stayIn ?? focus ?? CanvasWindowOf(previousForeground)
             ?? windows.LastOrDefault(w => camera.ToView(w.Frame).Intersects(View));
+        HoldOthersAbove(target);
+        int moved = Commit();
+        int waited = WaitForMoves();
         if (target != null && IsWindow(target.Hwnd))
         {
             // Its dialog, if that's where you last were (or it's asking something, which leaves
@@ -2701,6 +2702,7 @@ sealed partial class Canvas
         ResetTree();
         UpdatePinnedFrames();
         HoldOverlayForRepaint();
+        ReleaseOthersAbove();
         overlay.Hide();
         KillTimer(overlay.Hwnd, DialogTimer);
         ShowDialogOverCanvas(0);
@@ -2773,17 +2775,9 @@ sealed partial class Canvas
                 Log.Info($"restored {w} from maximised to move it");
             }
         }
-        int x = (int)Math.Round(v.X) + monitor.Left - w.Insets.Left;
-        int y = (int)Math.Round(v.Y) + monitor.Top - w.Insets.Top;
-        x = Math.Clamp(x, -30000, 30000);
-        y = Math.Clamp(y, -30000, 30000);
-        if (otherMonitors.Count > 0)
-        {
-            int fx = x + w.Insets.Left, fy = y + w.Insets.Top;
-            var frame = new RECT(fx, fy, fx + (int)w.Frame.W, fy + (int)w.Frame.H);
-            if (!OnMainScreen(frame) && ParkingSpot(frame) is POINT p) (x, y) = (p.X - w.Insets.Left, p.Y - w.Insets.Top);
-        }
-        w.Placed = new POINT(x + w.Insets.Left, y + w.Insets.Top);
+        var spot = SpotFor(w);
+        int x = spot.X - w.Insets.Left, y = spot.Y - w.Insets.Top;
+        w.Placed = spot;
         GetWindowRect(w.Hwnd, out var current);
         // Already there, unless an earlier move is yet to land: it would then take the window away.
         if (current.Left == x && current.Top == y && !w.Moves.Any) return false;
@@ -2798,7 +2792,76 @@ sealed partial class Canvas
         return true;
     }
 
+    /// Where its visible frame's corner goes on the screen: where the camera says, or if that's off the
+    /// main screen and on another monitor, a spot clear of it.
+    POINT SpotFor(CanvasWindow w)
+    {
+        var v = camera.ToView(w.Frame);
+        int x = Math.Clamp((int)Math.Round(v.X) + monitor.Left - w.Insets.Left, -30000, 30000) + w.Insets.Left;
+        int y = Math.Clamp((int)Math.Round(v.Y) + monitor.Top - w.Insets.Top, -30000, 30000) + w.Insets.Top;
+        if (otherMonitors.Count > 0)
+        {
+            var frame = new RECT(x, y, x + (int)w.Frame.W, y + (int)w.Frame.H);
+            if (!OnMainScreen(frame) && ParkingSpot(frame) is POINT p) return p;
+        }
+        return new POINT(x, y);
+    }
+
     // MARK: Other monitors, scaling
+
+    /// Other monitors' windows always-on-top for a hand-back (HoldOthersAbove), the lowest first.
+    readonly List<nint> heldAbove = new();
+
+    /// Before a hand-back moves the windows: where one is about to land on another monitor over that
+    /// monitor's own, those go always-on-top, until the overlay drops. Raised only afterwards
+    /// (KeepOtherMonitorsAbove), they were covered while the windows landed and `front` got focus:
+    /// the overlay hides none of that, being on the main screen only.
+    void HoldOthersAbove(CanvasWindow? front)
+    {
+        if (paused || UserDragging || otherMonitors.Count == 0 || heldAbove.Count > 0) return;
+        var landing = new Dictionary<nint, RectD>();
+        foreach (var w in windows.SelectMany(w => w.WithOwned()))
+        {
+            var spot = SpotFor(w);
+            var frame = new RectD(spot.X, spot.Y, w.Frame.W, w.Frame.H);
+            if (OtherMonitorRects.Any(frame.Intersects)) landing[w.Hwnd] = frame;
+        }
+        if (landing.Count == 0) return;
+        var seen = new List<(RectD frame, bool theirs)>();
+        var others = new List<nint>(); // top first
+        EnumWindows((h, _) =>
+        {
+            if (!IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h)) return true;
+            if (landing.TryGetValue(h, out var frame)) seen.Add((frame, false));
+            else if (elsewhere.Contains(h) && PinnedAppOf(h) == null && (ExStyle(h) & WS_EX_TOPMOST) == 0)
+            {
+                seen.Add((Dwm.FrameBounds(h).ToRectD(), true));
+                if (!IsHungAppWindow(h)) others.Add(h); // it would stall us
+            }
+            return true;
+        }, 0);
+        var brought = front == null ? [] : front.WithOwned().Where(w => landing.ContainsKey(w.Hwnd)).Select(w => landing[w.Hwnd]);
+        if (others.Count == 0 || !Screens.Covers(seen, brought)) return;
+        const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        // Behind the overlay, or one reaching onto the main screen would cover it; and each behind the one
+        // before, so none shows over one it was behind.
+        nint above = overlay.Hwnd;
+        foreach (nint h in others)
+        {
+            SetWindowPos(h, above, 0, 0, 0, 0, flags);
+            if ((ExStyle(h) & WS_EX_TOPMOST) == 0) continue; // an administrator's
+            heldAbove.Insert(0, h);
+            above = h;
+        }
+        Log.Info($"other monitors: {heldAbove.Count} windows held above {landing.Count} landing there");
+    }
+
+    /// Back to ordinary windows, on top of those: each goes to their top, so the lowest goes first.
+    void ReleaseOthersAbove()
+    {
+        foreach (nint h in heldAbove) SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        heldAbove.Clear();
+    }
 
     /// Whether a frame (screen coordinates) is at least partly on the main screen.
     bool OnMainScreen(RECT f) => Overlaps(f, monitor);
@@ -2812,6 +2875,7 @@ sealed partial class Canvas
         // Not under a window you're dragging across: it would end up behind them. The sync after
         // the drop comes back here.
         if (paused || active || UserDragging) return;
+        ReleaseOthersAbove(); // if a hand-back was cut short
         KeepPinnedOnTop();
         KeepOthersOverSlid();
         var (spilling, others, covered) = ReadStacking();

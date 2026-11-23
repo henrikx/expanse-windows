@@ -80,7 +80,9 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   the desktop's id; the ones of a desktop you remove come to the one you're on.
 - **Monitors.** The canvas is the main monitor's. A window whose centre is on another monitor is left
   alone; moved so its centre is on the main screen, it joins the canvas. A canvas window Expanse
-  places partly over there stays on the canvas: only your own moves change where it belongs.
+  places partly over there stays on the canvas: only your own moves change where it belongs. That
+  monitor's own windows stay in front of it: they go always-on-top while a hand-back moves windows over
+  there, and straight after they're ordinary windows again.
 - **Groups** are boxes in canvas space, drawn behind the pictures. Membership is never stored: an
   app whose centre is inside a box is in it. The rules are plain geometry in `src/Layout/Groups.cs`,
   tested on any platform, and border dragging in `Resizing` knows nothing about groups, so windows

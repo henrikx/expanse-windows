@@ -22,6 +22,12 @@ static class ScreenTests
         Is("below the other monitor, reaching onto it: centre on neither", new(-1000, 800, 400, 300), true);
         Is("reaching the main screen with its centre on neither", new(-300, 880, 800, 300), false);
         expect("screens: no other monitors, nothing is elsewhere", !Screens.IsElsewhere(new(-9000, 0, 100, 100), main, []), "");
+        RectD ours = new(-200, 0, 800, 600), theirs = new(-1000, 100, 900, 500), clear = new(100, 0, 800, 600);
+        expect("screens: a canvas window above another monitor's covers it", Screens.Covers([(ours, false), (theirs, true)], []), "");
+        expect("screens: one below it doesn't", !Screens.Covers([(theirs, true), (ours, false)], []), "");
+        expect("screens: until it's brought to the front", Screens.Covers([(theirs, true), (ours, false)], [ours]), "");
+        expect("screens: one that doesn't reach it doesn't", !Screens.Covers([(clear, false), (theirs, true)], [clear]), "");
+        expect("screens: no windows, nothing is covered", !Screens.Covers([], [ours]), "");
         expect("screens: centre on neither isn't a centre elsewhere", !Screens.CentreElsewhere(new(-1000, 800, 400, 300), main, left), "");
 
         void Hidden(string name, RectD f, int percent, bool want) =>
