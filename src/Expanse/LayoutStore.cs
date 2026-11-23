@@ -50,6 +50,23 @@ sealed class SavedGroup
     public bool KeepClear { get; set; }
     /// A pinned group's apps, to find again at launch. Null on the canvas, where they're the ones inside.
     public List<SavedWindow>? Apps { get; set; }
+    /// Its command drawer's. Null: saved before groups had one.
+    public List<SavedCommand>? Commands { get; set; }
+}
+
+/// A group's command (see GroupCommand). The line is as you wrote it: unlike a title, it's yours to run.
+sealed class SavedCommand
+{
+    public string Name { get; set; } = "";
+    public string Line { get; set; } = "";
+    /// Its window's spot, relative to the group's box, and size. Null until it's had a window.
+    public double? X { get; set; }
+    public double? Y { get; set; }
+    public double? W { get; set; }
+    public double? H { get; set; }
+    /// The window it opened and its process, as SavedWindow's.
+    public long Hwnd { get; set; }
+    public uint Pid { get; set; }
 }
 
 sealed class SavedWindow
@@ -123,9 +140,12 @@ static partial class LayoutStore
     {
         if (layout.Dpi == 0 || layout.Dpi == dpi) { layout.Dpi = dpi; return; }
         double r = (double)dpi / layout.Dpi;
+        double? Times(double? v) => v is double d ? Layout.Round(d * r) : null;
         foreach (var e in layout.Windows) Scale(e, new Vec(layout.CenterX, layout.CenterY), r);
         foreach (var g in layout.Groups ?? [])
         {
+            foreach (var c in g.Commands ?? [])
+                (c.X, c.Y, c.W, c.H) = (Times(c.X), Times(c.Y), Times(c.W), Times(c.H));
             // On the screen, from its top-left, as Windows moves the windows.
             if (g.Pinned)
             {

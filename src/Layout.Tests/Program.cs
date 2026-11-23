@@ -51,6 +51,7 @@ SlowAppTests.Run(Expect);
 StackTests.Run(Expect);
 ResizeTests.Run(Expect);
 GroupColourTests.Run(Expect);
+GroupCommandTests.Run(Expect);
 FramePacingTests.Run(Expect);
 EasingTests.Run(Expect);
 WarmingTests.Run(Expect);

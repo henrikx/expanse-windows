@@ -131,6 +131,12 @@ sealed class SharedVisualPictures : IPictures
     TreeDrawing? treeDrawn;
     IDCompositionSurface? trashSurface, pinSurface, pinnedSurface, dockLeftSurface, dockLeftOnSurface, dockRightSurface, dockRightOnSurface;
     readonly Dictionary<long, IDCompositionVisual2> groupDocks = new();
+    readonly Dictionary<long, IDCompositionVisual2> groupCommands = new();
+    readonly IDCompositionVisual2 drawerVisual;
+    IDCompositionSurface? commandsSurface, drawerSurface;
+    (int w, int h) drawerSize;
+    DrawerDrawing? drawerDrawn;
+    double drawerScale;
     double trashScale;
     readonly Dictionary<long, IDCompositionVisual2> groupPins = new();
     readonly bool failForTesting;
@@ -211,6 +217,8 @@ sealed class SharedVisualPictures : IPictures
         root.AddVisual(desktopsVisual, false, null);
         device.CreateVisual(out treeVisual);
         root.AddVisual(treeVisual, false, null);
+        device.CreateVisual(out drawerVisual);
+        root.AddVisual(drawerVisual, false, null);
         device.CreateVisual(out buttonLayer);
         root.AddVisual(buttonLayer, false, null);
         device.CreateVisual(out wheelLayer);
@@ -472,14 +480,14 @@ sealed class SharedVisualPictures : IPictures
     public void HideDecorations(bool hidden)
     {
         if (hidden) decorationsHidden.SetOpacity(0f);
-        foreach (var layer in new[] { groupBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer })
+        foreach (var layer in new[] { groupBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, drawerVisual, buttonLayer, wheelLayer })
             layer.SetEffect(hidden ? decorationsHidden : null);
     }
 
     public void FadeDecorations(double opacity, bool pinnedOnly)
     {
         decorationsHidden.SetOpacity((float)Math.Clamp(opacity, 0, 1));
-        IDCompositionVisual2[] all = [groupBoxLayer, pinnedBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, buttonLayer, wheelLayer];
+        IDCompositionVisual2[] all = [groupBoxLayer, pinnedBoxLayer, groupLabels, titles, minimapVisual, desktopsVisual, treeVisual, drawerVisual, buttonLayer, wheelLayer];
         IDCompositionVisual2[] some = [pinnedBoxLayer, groupLabels];
         foreach (var layer in all)
             layer.SetEffect(opacity >= 1 || (pinnedOnly && !some.Contains(layer)) ? null : decorationsHidden);
@@ -665,6 +673,7 @@ sealed class SharedVisualPictures : IPictures
         {
             trashScale = scale;
             Replace(ref trashSurface, DrawButton("\uE74D", groups[0].Trash.H, scale));
+            Replace(ref commandsSurface, DrawButton("\uE756", groups[0].Trash.H, scale));
             Replace(ref pinSurface, DrawButton("\uE718", groups[0].Trash.H, scale));
             Replace(ref pinnedSurface, DrawButton("\uE840", groups[0].Trash.H, scale));
             Replace(ref dockLeftSurface, DrawButton(PinnedFrames.DockLeftGlyph, groups[0].Trash.H, scale));
@@ -686,6 +695,8 @@ sealed class SharedVisualPictures : IPictures
                 groupPins[g.Id] = pin;
                 device.CreateVisual(out var dock);
                 groupDocks[g.Id] = dock;
+                device.CreateVisual(out var prompt);
+                groupCommands[g.Id] = prompt;
                 device.CreateVisual(out var circle);
                 groupSwatches[g.Id] = new Swatch(circle);
             }
@@ -725,6 +736,14 @@ sealed class SharedVisualPictures : IPictures
             trash.SetOffsetX((float)Math.Round(g.Trash.X));
             trash.SetOffsetY((float)Math.Round(g.Trash.Y));
             groupLabels.AddVisual(trash, false, null);
+            if (g.Commands.W > 0)
+            {
+                var commandsButton = groupCommands[g.Id];
+                commandsButton.SetContent(commandsSurface);
+                commandsButton.SetOffsetX((float)Math.Round(g.Commands.X));
+                commandsButton.SetOffsetY((float)Math.Round(g.Commands.Y));
+                groupLabels.AddVisual(commandsButton, false, null);
+            }
             var pinButton = groupPins[g.Id];
             pinButton.SetContent(g.Pinned ? pinnedSurface : pinSurface);
             pinButton.SetOffsetX((float)Math.Round(g.Pin.X));
@@ -750,6 +769,8 @@ sealed class SharedVisualPictures : IPictures
             pin!.Dispose();
             groupDocks.Remove(id, out var dock);
             dock!.Dispose();
+            groupCommands.Remove(id, out var prompt);
+            prompt!.Dispose();
             if (groupBoxes.Remove(id, out var box))
             {
                 box.fill.Dispose();
@@ -916,6 +937,110 @@ sealed class SharedVisualPictures : IPictures
         treeVisual.SetOffsetY((float)Math.Round(d.Panel.Y));
         treeDrawn = d;
         return true;
+    }
+
+    /// The command drawer, drawn like the groups panel: a surface of its own, redrawn only when it changes.
+    public void SetCommandDrawer(DrawerDrawing? drawer, double scale)
+    {
+        if (drawer is not DrawerDrawing d)
+        {
+            if (drawerDrawn != null) { drawerVisual.SetContent(null); drawerDrawn = null; }
+            return;
+        }
+        if (drawerDrawn is DrawerDrawing last && drawerScale == scale && last.Same(d)) return;
+        var panel = d.Layout.Panel;
+        int w = (int)Math.Ceiling(panel.W), h = Math.Max(1, (int)Math.Ceiling(panel.H));
+        if (drawerSurface == null || drawerSize != (w, h))
+        {
+            drawerSurface?.Dispose();
+            device.CreateSurface((uint)w, (uint)h, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var created);
+            drawerSurface = created;
+            drawerSize = (w, h);
+        }
+        float k = (float)scale;
+        System.Drawing.RectangleF Local(RectD r) => new((float)(r.X - panel.X), (float)(r.Y - panel.Y), (float)r.W, (float)r.H);
+        Vortice.RawRectF Raw(RectD r) => new((float)(r.X - panel.X), (float)(r.Y - panel.Y), (float)(r.Right - panel.X), (float)(r.Bottom - panel.Y));
+        using (var dxgi = drawerSurface.BeginDraw<IDXGISurface>(null, out Vortice.Mathematics.Int2 offset))
+        using (var bitmap = d2d.CreateBitmapFromDxgiSurface(dxgi, new BitmapProperties1(
+                   new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96, 96,
+                   BitmapOptions.Target | BitmapOptions.CannotDraw)))
+        using (var back = d2d.CreateSolidColorBrush(d.Dark ? new Color4(0.12f, 0.12f, 0.13f, 0.97f) : new Color4(0.97f, 0.97f, 0.98f, 0.97f)))
+        using (var edge = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.12f) : new Color4(0f, 0f, 0f, 0.1f)))
+        using (var field = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.09f) : new Color4(0f, 0f, 0f, 0.06f)))
+        using (var over = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.18f) : new Color4(0f, 0f, 0f, 0.13f)))
+        using (var failed = d2d.CreateSolidColorBrush(new Color4(0.9f, 0.2f, 0.2f, d.Dark ? 0.35f : 0.22f)))
+        using (var ink = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.95f) : new Color4(0f, 0f, 0f, 0.85f)))
+        using (var muted = d2d.CreateSolidColorBrush(d.Dark ? new Color4(1f, 1f, 1f, 0.6f) : new Color4(0f, 0f, 0f, 0.55f)))
+        using (var plain = dwrite.CreateTextFormat("Segoe UI", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 12 * k))
+        using (var small = dwrite.CreateTextFormat("Segoe UI", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 11 * k))
+        using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 22 * k))
+        using (var pencil = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, 11 * k))
+        using (var plainCut = dwrite.CreateEllipsisTrimmingSign(plain))
+        using (var smallCut = dwrite.CreateEllipsisTrimmingSign(small))
+        {
+            foreach (var format in new[] { plain, small, glyph, pencil })
+            {
+                format.WordWrapping = WordWrapping.NoWrap;
+                format.TextAlignment = TextAlignment.Center;
+                format.ParagraphAlignment = ParagraphAlignment.Center;
+            }
+            plain.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, plainCut);
+            small.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, smallCut);
+            d2d.Target = bitmap;
+            d2d.BeginDraw();
+            d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
+            d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, w, h), AntialiasMode.Aliased);
+            d2d.Clear(new Color4(0, 0, 0, 0));
+            float corner = 10 * k, inner = 6 * k;
+            var outline = new System.Drawing.RectangleF(0.5f, 0.5f, (float)panel.W - 1, (float)panel.H - 1);
+            d2d.FillRoundedRectangle(new RoundedRectangle(outline, corner, corner), back);
+            d2d.DrawRoundedRectangle(new RoundedRectangle(outline, corner, corner), edge, 1);
+            void Block(RectD r, ID2D1SolidColorBrush brush) => d2d.FillRoundedRectangle(new RoundedRectangle(Local(r), inner, inner), brush);
+            void Button(RectD r, DrawerPart part, string text)
+            {
+                if (r.W <= 0) return;
+                Block(r, d.Hovered == part ? over : field);
+                d2d.DrawText(text, plain, Raw(r), ink);
+            }
+            for (int i = 0; i < d.Tiles.Count; i++)
+            {
+                var (tile, at) = (d.Tiles[i], d.Layout.Tiles[i]);
+                bool hover = d.HoveredTile == i;
+                if (tile.Error.Length > 0) Block(at.Rect, failed);
+                if (hover) Block(at.Rect, d.Hovered == DrawerPart.Tile ? over : field);
+                if (tile.Icon is IconImage icon) DrawIcon(icon, (float)(at.Icon.X - panel.X), (float)(at.Icon.Y - panel.Y));
+                else d2d.DrawText("\uE756", glyph, Raw(at.Icon), ink);
+                d2d.DrawText(tile.Name, plain, Raw(at.Name), ink);
+                if (tile.Error.Length > 0) d2d.DrawText(tile.Error, small, Raw(at.Error), muted);
+                if (!hover) continue;
+                Block(at.Edit, back);
+                if (d.Hovered == DrawerPart.Edit) Block(at.Edit, over);
+                d2d.DrawText("\uE70F", pencil, Raw(at.Edit), ink);
+            }
+            if (d.Layout.Add.W > 0)
+            {
+                Block(d.Layout.Add, d.Hovered == DrawerPart.Add ? over : field);
+                d2d.DrawText("\uE710", glyph, Raw(d.Layout.AddIcon), muted);
+            }
+            Button(d.Layout.RunAll, DrawerPart.RunAll, DrawerDrawing.RunAllText);
+            if (d.Layout.Editor is DrawerEditor e)
+            {
+                d2d.DrawText(DrawerDrawing.NameText, plain, Raw(e.NameLabel), muted);
+                d2d.DrawText(DrawerDrawing.LineText, plain, Raw(e.LineLabel), muted);
+                Button(e.Save, DrawerPart.Save, DrawerDrawing.SaveText);
+                Button(e.Delete, DrawerPart.Delete, DrawerDrawing.DeleteText);
+                Button(e.Cancel, DrawerPart.Cancel, DrawerDrawing.CancelText);
+            }
+            d2d.PopAxisAlignedClip();
+            d2d.EndDraw();
+            d2d.Target = null;
+        }
+        drawerSurface.EndDraw();
+        drawerVisual.SetContent(drawerSurface);
+        drawerVisual.SetOffsetX((float)Math.Round(panel.X));
+        drawerVisual.SetOffsetY((float)Math.Round(panel.Y));
+        drawerDrawn = d;
+        drawerScale = scale;
     }
 
     IDWriteTextFormat TitleFont(double scale)
@@ -1527,6 +1652,10 @@ sealed class SharedVisualPictures : IPictures
         foreach (var v in groupTrash.Values) v.Dispose();
         foreach (var v in groupPins.Values) v.Dispose();
         foreach (var v in groupDocks.Values) v.Dispose();
+        foreach (var v in groupCommands.Values) v.Dispose();
+        commandsSurface?.Dispose();
+        drawerSurface?.Dispose();
+        drawerVisual.Dispose();
         dockLeftSurface?.Dispose();
         dockLeftOnSurface?.Dispose();
         dockRightSurface?.Dispose();

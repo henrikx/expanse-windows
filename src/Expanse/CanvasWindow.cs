@@ -34,6 +34,8 @@ sealed class CanvasWindow
     public Vec? Home;
     /// When Expanse first saw it (Environment.TickCount64).
     public readonly long SeenAt = Environment.TickCount64;
+    /// You've dragged or resized it, here or in a pinned group.
+    public bool MovedByYou;
     /// How far the last fit pushed it to clear an overlap (see Canvas.FitLayoutToScreen).
     public Vec FitPush;
     /// The size Expanse last gave it, so our resizes aren't taken for yours.

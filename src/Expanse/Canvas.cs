@@ -241,6 +241,7 @@ sealed partial class Canvas
     public (List<CanvasWindow> added, List<CanvasWindow> removed) Sync()
     {
         var added = new List<CanvasWindow>();
+        var opened = new List<(CanvasWindow w, PendingCommand command)>();
         ownedArrived.Clear();
         ownedLeft.Clear();
         // First: another desktop's pinned apps are told from the canvas's by its groups being here.
@@ -262,7 +263,13 @@ sealed partial class Canvas
             }
             if (!known.TryGetValue(h, out var w))
             {
-                if (ClaimForPinned(h)) continue;
+                var opening = departed.ContainsKey(h) ? null : CommandOpening(h);
+                if (opening?.Group.Pinned != null)
+                {
+                    JoinForCommand(h, opening);
+                    continue;
+                }
+                if (opening == null && ClaimForPinned(h)) continue;
                 if (PinnedElsewhere(h))
                 {
                     awayPinned = true;
@@ -276,7 +283,7 @@ sealed partial class Canvas
                 // windows on its screen), unless it's one Expanse had: minimised, or parked by the
                 // Expanse that handed over (saved by its handle). One off every screen is taken on:
                 // left alone it would be out of reach.
-                if (Screens.IsElsewhere(Dwm.FrameBounds(h).ToRectD(), monitor.ToRectD(), OtherMonitorRects) && !departed.ContainsKey(h) && !savedPool.Any(e => e.Hwnd == h))
+                if (opening == null && Screens.IsElsewhere(Dwm.FrameBounds(h).ToRectD(), monitor.ToRectD(), OtherMonitorRects) && !departed.ContainsKey(h) && !savedPool.Any(e => e.Hwnd == h))
                 {
                     if (elsewhere.Add(h)) Log.Info($"window {CanvasWindow.Describe(h)} is on another monitor: left alone");
                     continue;
@@ -303,6 +310,7 @@ sealed partial class Canvas
                 w.Preferred = w.Frame.Size;
                 Log.Info($"window {w} at {w.Frame}");
                 added.Add(w);
+                if (opening != null) opened.Add((w, opening));
             }
             else
             {
@@ -389,6 +397,8 @@ sealed partial class Canvas
         AwaitPinnedDesktop(awayPinned);
         foreach (var gone in removed)
         {
+            NoteCommandSpot(gone);
+            placedForCommand.Remove(gone.Hwnd);
             // Still there, just minimised, hidden or cloaked: it'll come back to its spot.
             if (elsewhere.Contains(gone.Hwnd)) { }
             else if (IsWindow(gone.Hwnd)) departed[gone.Hwnd] = gone;
@@ -405,9 +415,10 @@ sealed partial class Canvas
         windows.Clear();
         windows.AddRange(next);
         SyncOwned();
+        foreach (var (w, command) in opened) PlaceForCommand(w, command);
         // Here and not in Arrive: one first seen by a sync that arranges nothing (focus on it, zooming out) waits too.
         if (initialSyncDone)
-            foreach (var w in added.Where(w => !departed.ContainsKey(w.Hwnd))) WaitToBeKnown(w, mayTake: settings.ArrangeNewWindows);
+            foreach (var w in added.Where(w => !departed.ContainsKey(w.Hwnd) && !placedForCommand.Contains(w.Hwnd))) WaitToBeKnown(w, mayTake: settings.ArrangeNewWindows);
         return (added, removed);
     }
 
@@ -574,6 +585,7 @@ sealed partial class Canvas
     {
         if (paused || !initialSyncDone || sessionEnding) return;
         HomeFromCanvas();
+        NoteCommandSpots();
         appSupports.Look(wait: cleanExit || handOver || last);
         RefreshMarks();
         // Windows away (minimised, hidden) keep their spots too, and so do saved ones not open now.
@@ -960,6 +972,7 @@ sealed partial class Canvas
             return;
         }
         if (!initialSyncDone) return;
+        if (placedForCommand.Remove(w.Hwnd)) return; // in its group (Canvas.Commands)
         if (waitingWindows.Contains(w.Hwnd)) return; // until it's known (Canvas.Apps)
         if (!settings.ArrangeNewWindows)
         {
@@ -1312,6 +1325,7 @@ sealed partial class Canvas
             }
             if (!slidDragged.Remove(slidApp.Hwnd)) SlideIn(slid);
         }
+        if (!paused && KeepCanvasFocus(hwnd)) return;
         if (!paused && PinnedFocusZoomedOut(hwnd)) return;
         if (paused || active || animation != null || hwnd == 0) return;
         KeepOtherMonitorsAbove();
@@ -1512,6 +1526,7 @@ sealed partial class Canvas
         renameBox.Finish(save: true, byKey: false);
         searchBox.Close();
         if (PressColourWheel(p)) return;
+        if (PressDrawer(p)) return;
         if (PressNewGroup(p)) return;
         if (TreePanel.Contains(p)) { PressTree(p); return; }
         if (desktopsPanel.Panel.Contains(p))
@@ -1683,7 +1698,11 @@ sealed partial class Canvas
                 if (d.MovingGroups.Count > 0) Log.Info($"dragged {d.MovingGroups.Count} groups and {d.Moving.Count} windows by {d.GroupsMoved.X:0},{d.GroupsMoved.Y:0}");
                 else Log.Info(d.Moving.Count == 1 ? $"dragged {d.Clicked} to {d.Clicked!.Frame}"
                     : $"dragged {d.Moving.Count} windows by {d.Clicked!.Frame.X - d.Moving.First(m => m.w == d.Clicked).start.X:0},{d.Clicked.Frame.Y - d.Moving.First(m => m.w == d.Clicked).start.Y:0}");
-                foreach (var (w, start) in d.Moving) NoteUserMove(w, start.Origin);
+                foreach (var (w, start) in d.Moving)
+                {
+                    w.MovedByYou = true;
+                    NoteUserMove(w, start.Origin);
+                }
                 SettleGroups(DragStarts(d));
                 ScheduleSave();
                 Relayout();
@@ -2676,6 +2695,7 @@ sealed partial class Canvas
         else if (pinnedGroups.Any(g => g.SlideHome != null)) Log.Info($"focus on the desktop: {Focus(GetShellWindow())}");
         ReleaseDragIn();
         renameBox.Finish(save: true, byKey: false);
+        CloseDrawer(save: true);
         ResetTree();
         UpdatePinnedFrames();
         HoldOverlayForRepaint();
@@ -2921,6 +2941,8 @@ sealed partial class Canvas
             var s = Z(g.Box.Size);
             g.Box = new RectD(o.X, o.Y, s.W, s.H);
         }
+        foreach (var command in groups.Concat(pinnedGroups).Concat(groupsAway.Away.Concat(pinnedAway.Away).Select(a => a.Item)).SelectMany(g => g.Commands))
+            if (command.Spot is RectD spot) command.Spot = new RectD(Layout.Round(spot.X * r), Layout.Round(spot.Y * r), Layout.Round(spot.W * r), Layout.Round(spot.H * r));
         if (fittedView is SizeD v) fittedView = Z(v);
         // Pinned ones are on the screen, which Windows scales from its top-left.
         foreach (var g in pinnedGroups.Concat(pinnedAway.Away.Select(a => a.Item)))
@@ -3433,6 +3455,7 @@ sealed partial class Canvas
                 switch ((int)wParam)
                 {
                     case VK_ESCAPE when colourWheelGroup != null: CancelColourWheel(); Redraw(); break;
+                    case VK_ESCAPE when drawerGroup != null: CloseDrawer(save: false); Redraw(); break;
                     case VK_ESCAPE when selected.Count > 0 || selectedGroups.Count > 0: ClearSelection(); Redraw(); break;
                     case VK_ESCAPE: Exit(null); break;
                     case VK_RETURN when windows.Count > 0: Exit(hovered ?? windows[^1], keepView: true); break;
@@ -3528,6 +3551,7 @@ sealed partial class Canvas
         if (!active || gliding || animation != null) return;
         int desk = desktopsPanel.Panel.Contains(p) ? desktopsPanel.TileAt(p) : -1;
         if (desk != hoveredDesktop) { hoveredDesktop = desk; Redraw(); }
+        if (HoverDrawer(p)) { LeaveTree(); return; }
         if (TreePanel.Contains(p)) { HoverTree(p); return; }
         LeaveTree();
         var w = minimap.Panel.Contains(p) || desktopsPanel.Panel.Contains(p) || OverStackBar(p) || GroupLabelAt(p) != null ? null : WindowAt(p);
@@ -3554,6 +3578,7 @@ sealed partial class Canvas
     /// on the overlay's backdrop (only while still: GDI can't keep up with the camera).
     void Redraw()
     {
+        KeepDrawer(UiScale);
         if (!pictures.DrawsDecorations)
         {
             if (animation == null) overlay.Invalidate();
@@ -3597,6 +3622,7 @@ sealed partial class Canvas
         pictures.SetDesktops(map is MinimapDrawing m ? desktopsPanel.Update(m.Panel, hoveredDesktop, k, m.Dark) : null, k);
         probe?.Mark("desktops");
         pictures.SetTreePanel(settings.GroupsPanel && map is MinimapDrawing panelTheme ? TreeDrawingNow(k, panelTheme.Dark) : null, k);
+        pictures.SetCommandDrawer(map is MinimapDrawing drawerTheme ? DrawerDrawingNow(k, drawerTheme.Dark) : null, k);
         probe?.Mark("tree");
         pictures.Present();
         probe?.Mark("commit");
@@ -3639,7 +3665,7 @@ sealed partial class Canvas
     List<GroupDrawing> PinnedDrawings(double k)
     {
         var drawings = new List<GroupDrawing>();
-        AddPinnedDrawings(drawings, k);
+        AddPinnedDrawings(drawings, k, canvas: false);
         return drawings;
     }
 
@@ -3755,6 +3781,7 @@ sealed partial class Canvas
             Gdi32.DeleteObject(groupColour);
             Pill(g.Label, g.Name);
             nint textFont = Gdi32.SelectObject(hdc, glyph);
+            if (g.Commands.W > 0) Pill(g.Commands, "\uE756");
             Pill(g.Pin, g.Pinned ? "\uE840" : "\uE718");
             if (g.Handle.W > 0)
             {
@@ -3827,6 +3854,7 @@ sealed partial class Canvas
             Gdi32.DeleteObject(pink);
         }
         PaintTree(hdc, k);
+        PaintDrawer(hdc, k);
         Gdi32.SelectObject(hdc, oldBrush);
         Gdi32.SelectObject(hdc, oldPen);
         Gdi32.SelectObject(hdc, oldFont);

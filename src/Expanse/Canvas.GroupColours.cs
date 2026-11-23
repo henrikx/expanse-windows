@@ -90,7 +90,7 @@ sealed partial class Canvas
         }
         colourWheelGrown = Math.Max(colourWheelGrown,
             Math.Min(1, Stopwatch.GetElapsedTime(colourWheelOpenedAt).TotalSeconds / ColourWheelGrowth));
-        var (swatch, _, _, _, _) = LabelRects(g, k);
+        var (swatch, _, _, _, _, _) = LabelRects(g, k);
         var wheel = GroupColours.WheelRect(swatch, View, k);
         return new ColourWheelDrawing(GroupColours.WheelGrowing(swatch, wheel, colourWheelGrown), wheel, GroupColours.PointOnWheel(wheel, g.Colour));
     }

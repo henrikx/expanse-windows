@@ -80,6 +80,9 @@ interface IPictures : IDisposable
     /// The groups panel, or none. False if this kind can't draw it (the caller draws it on the backdrop).
     bool SetTreePanel(TreeDrawing? tree, double scale);
 
+    /// A group's command drawer, over everything, or none. Only for a kind that DrawsDecorations.
+    void SetCommandDrawer(DrawerDrawing? drawer, double scale);
+
     /// The minimap (bottom right, zoomed out), or none. False if this kind can't draw it (the
     /// caller draws it on the backdrop instead).
     bool SetMinimap(MinimapDrawing? minimap, double scale);
@@ -125,12 +128,23 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
         Panel == o.Panel && Search == o.Search && List == o.List && Query == o.Query && Empty == o.Empty && Dark == o.Dark && Typing == o.Typing && Rows.SequenceEqual(o.Rows);
 }
 
+/// A group's command drawer (see GroupCommands). `Hovered` and `HoveredTile`: what's under the pointer.
+readonly record struct DrawerTileDrawing(string Name, string Error, IconImage? Icon);
+readonly record struct DrawerDrawing(DrawerLayout Layout, IReadOnlyList<DrawerTileDrawing> Tiles, DrawerPart Hovered, int HoveredTile, bool Dark)
+{
+    public const string RunAllText = "Run all", NameText = "Name", LineText = "Line", SaveText = "Save", DeleteText = "Delete", CancelText = "Cancel";
+    public bool Same(DrawerDrawing o) =>
+        Layout.Panel == o.Layout.Panel && Layout.Editor == o.Layout.Editor && Layout.Tiles.SequenceEqual(o.Layout.Tiles) && Layout.RunAll == o.Layout.RunAll
+        && Hovered == o.Hovered && HoveredTile == o.HoveredTile && Dark == o.Dark && Tiles.SequenceEqual(o.Tiles);
+}
+
 /// A group in view coordinates: its box, the circle with its colour, its name's pill and the delete
 /// button beside it.
 /// `Pinned`: kept on the screen over the canvas (see Pinning), so drawn over the pictures, solid. `Handle`
-/// and `Edge`: the strip that slides it out, as PinnedFrameLook has them.
+/// and `Edge`: the strip that slides it out, as PinnedFrameLook has them. `Commands`: what opens its
+/// command drawer, empty where it isn't shown.
 readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Pin, RectD Trash, bool Hovered, GroupColour Colour, bool Pinned,
-    RectD Dock = default, bool KeepClear = false, bool DockRight = false, RectD Handle = default, int Edge = 0);
+    RectD Dock = default, bool KeepClear = false, bool DockRight = false, RectD Handle = default, int Edge = 0, RectD Commands = default);
 
 /// The colour wheel in view coordinates. `Shown`: where it is right now, as it grows into `Rect`.
 /// `Marker`: the group's colour on it, once it's grown to `Rect`.
@@ -241,6 +255,7 @@ sealed class ThumbnailPictures(nint dest) : IPictures
     public double? MeasureText(string text, double scale) => null;
     public bool SetMinimap(MinimapDrawing? minimap, double scale) => false;
     public bool SetTreePanel(TreeDrawing? tree, double scale) => false;
+    public void SetCommandDrawer(DrawerDrawing? drawer, double scale) { }
     public bool SetDesktops(DesktopsDrawing? desktops, double scale) => false;
     public void Present() { }
     public void HideDecorations(bool hidden) { }

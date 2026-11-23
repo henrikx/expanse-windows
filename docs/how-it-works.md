@@ -139,6 +139,13 @@ quit), up to three snapshots 15 or more minutes apart in `Snapshots\` for Restor
 `settings.json`, `originals.json` (where windows were before Expanse moved them, so quitting, or
 the next start after a crash, puts them back), and with Detailed Logging, `expanse.log`.
 
+A group's commands are saved with it: each command line as written, its window's spot relative to the
+group's box, and the window's handle and process, so that a restarted Expanse still knows whose it is.
+A layout saved before groups had commands leaves them as they are when it's restored. After a command
+starts, the first new window within 15 seconds from its process, one that process started, or another
+of its program is its window; for a console program, so is a new Windows Terminal window. One that closes at once (a splash screen) leaves the claim to the next.
+A link's window isn't recognised.
+
 Restore Layout puts every window it knows exactly where the snapshot had it when the snapshot was
 taken on a screen of this size; on another, it fits the snapshot's home spots to this one.
 

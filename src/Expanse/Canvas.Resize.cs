@@ -92,6 +92,7 @@ sealed partial class Canvas
             var by = w.Frame.Origin - from.Origin;
             foreach (var o in w.Owned) o.Frame = o.Frame.Offset(by);
             PictureMoved(w);
+            w.MovedByYou = true;
             NoteUserMove(w, from.Origin);
             Log.Info($"resized: {w} {from.W:0}x{from.H:0} -> {actual.W:0}x{actual.H:0}, asked {to.W:0}x{to.H:0}");
         }

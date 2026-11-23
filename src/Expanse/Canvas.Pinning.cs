@@ -507,6 +507,7 @@ sealed partial class Canvas
     /// it, or for the other monitor it's now on.
     void PinnedAppMoved(CanvasWindow w)
     {
+        w.MovedByYou = true;
         var g = PinnedGroupOf(w)!;
         var f = w.ReadScreenFrame();
         var view = ViewFrame(f);
@@ -1003,12 +1004,20 @@ sealed partial class Canvas
         var wanted = new List<(PinnedFrameLook, nint)>();
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
+            var (swatch, label, _, pin, dock, trash) = WithoutCommands(LabelRects(g, k));
             var (handle, side) = SlideHandle(g, k);
             wanted.Add((new PinnedFrameLook(g.Id, g.Box.Offset(screen), g.Name, swatch.Offset(screen), label.Offset(screen),
                 pin.Offset(screen), trash.Offset(screen), g.Colour, handle.Offset(screen), side, dock.Offset(screen), g.KeepClear, DockSide(g) > 0), LowestPinned(g)));
         }
         pinnedFrames.Show(wanted, k);
+    }
+
+    /// The label row at 100%, which hasn't the button of the group's commands: what's right of it moves up.
+    static (RectD swatch, RectD label, RectD commands, RectD pin, RectD dock, RectD trash) WithoutCommands(
+        (RectD swatch, RectD label, RectD commands, RectD pin, RectD dock, RectD trash) row)
+    {
+        var by = new Vec(row.commands.X - row.pin.X, 0);
+        return (row.swatch, row.label, default, row.pin.Offset(by), row.dock.W > 0 ? row.dock.Offset(by) : default, row.trash.Offset(by));
     }
 
     /// The strip that slides the group out, and the side of the screen it's against (0, and an empty one,
@@ -1081,8 +1090,9 @@ sealed partial class Canvas
         double k = UiScale;
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
+            var (swatch, label, commands, pin, dock, trash) = LabelRects(g, k);
             if (swatch.Contains(p)) return (g, GroupPart.Colour, ResizeEdges.None);
+            if (commands.Contains(p)) return (g, GroupPart.Commands, ResizeEdges.None);
             if (pin.Contains(p)) return (g, GroupPart.Pin, ResizeEdges.None);
             if (dock.Contains(p)) return (g, GroupPart.Dock, ResizeEdges.None);
             if (trash.Contains(p)) return (g, GroupPart.Trash, ResizeEdges.None);
@@ -1099,15 +1109,17 @@ sealed partial class Canvas
         return null;
     }
 
-    void AddPinnedDrawings(List<GroupDrawing> drawings, double k)
+    /// `canvas`: as zoomed out, not as at 100%.
+    void AddPinnedDrawings(List<GroupDrawing> drawings, double k, bool canvas = true)
     {
         foreach (var g in pinnedGroups)
         {
-            var (swatch, label, pin, dock, trash) = LabelRects(g, k);
+            var row = LabelRects(g, k);
+            var (swatch, label, commands, pin, dock, trash) = canvas ? row : WithoutCommands(row);
             var (handle, side) = SlideHandle(g, k);
             // Growing to its spot, its apps are still pictures: its box stays under them till they're there.
             drawings.Add(new GroupDrawing(g.Id, g.Box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g, g.Colour, Pinned: pinMove?.Group != g,
-                Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0, Handle: handle, Edge: side));
+                Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0, Handle: handle, Edge: side, Commands: commands));
         }
     }
 }

@@ -374,22 +374,23 @@ public static class Groups
 
     /// What goes above a box's top-left, in view space, at display scale `k`: the same size at any
     /// zoom. From the left: the colour's circle, close to the label as it's part of what names the
-    /// group, then the label, the pin button and the delete button.
-    public static (RectD swatch, RectD label, RectD pin, RectD trash) LabelRects(RectD viewBox, double textWidth, double k)
+    /// group, then the label, the buttons of its commands and its pin, and the delete button.
+    public static (RectD swatch, RectD label, RectD commands, RectD pin, RectD trash) LabelRects(RectD viewBox, double textWidth, double k)
     {
         double h = Math.Round(LabelHeight * k), y = viewBox.Y - h - Math.Round(LabelLift * k);
         double w = Math.Min(textWidth + 2 * LabelPad * k, LabelMaxWidth * k);
         var swatch = new RectD(viewBox.X, y, h, h);
         var label = new RectD(swatch.Right + Math.Round(2 * k), y, w, h);
-        var pin = new RectD(label.Right + Math.Round(4 * k), y, h, h);
-        return (swatch, label, pin, new RectD(pin.Right + Math.Round(4 * k), y, h, h));
+        var commands = new RectD(label.Right + Math.Round(4 * k), y, h, h);
+        var pin = new RectD(commands.Right + Math.Round(4 * k), y, h, h);
+        return (swatch, label, commands, pin, new RectD(pin.Right + Math.Round(4 * k), y, h, h));
     }
 
     /// `box` (in canvas space) with what goes above it, seen at zoom `scale`: the label row is the same
     /// size on screen at any zoom, so the further out, the more of the canvas it takes up.
     public static RectD WithLabel(RectD box, double textWidth, double k, double scale)
     {
-        var (swatch, _, _, trash) = LabelRects(new RectD(box.X * scale, box.Y * scale, box.W * scale, box.H * scale), textWidth, k);
+        var (swatch, _, _, _, trash) = LabelRects(new RectD(box.X * scale, box.Y * scale, box.W * scale, box.H * scale), textWidth, k);
         var row = swatch.Union(trash);
         return box.Union(new RectD(row.X / scale, row.Y / scale, row.W / scale, row.H / scale));
     }
@@ -398,7 +399,7 @@ public static class Groups
     /// group's box, in view space), but always on screen, to be clicked.
     public static RectD ButtonRect(RectD viewBox, double textWidth, RectD view, double k)
     {
-        var (_, label, _, _) = LabelRects(viewBox, textWidth, k);
+        var (_, label, _, _, _) = LabelRects(viewBox, textWidth, k);
         return label with { X = Math.Clamp(label.X, view.X, view.Right - label.W), Y = Math.Clamp(label.Y, view.Y, view.Bottom - label.H) };
     }
 

@@ -59,6 +59,11 @@ sealed class AppIcons
         return known[(w.Hwnd, size)] = icon;
     }
 
+    readonly Dictionary<(string path, int size), IconImage?> ofFiles = new(); // kept: a file's hardly changes
+
+    public IconImage? OfFile(string path, int size) =>
+        ofFiles.TryGetValue((path, size), out var icon) ? icon : ofFiles[(path, size)] = FromFile(path, size);
+
     public void Clear() => known.Clear();
 
     static IconImage? FromWindow(nint hwnd, int size)
