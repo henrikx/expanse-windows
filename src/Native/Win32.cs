@@ -301,7 +301,7 @@ public static class User32
     [DllImport(Dll)] public static extern nint BeginDeferWindowPos(int count);
     [DllImport(Dll)] public static extern nint DeferWindowPos(nint batch, nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport(Dll)] public static extern bool EndDeferWindowPos(nint batch);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
+    [DllImport(Dll, CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool GetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool SetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool ShowWindow(nint hwnd, int cmd);

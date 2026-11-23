@@ -2754,6 +2754,7 @@ sealed partial class Canvas
         // Not under a window you're dragging across: it would end up behind them. The sync after
         // the drop comes back here.
         if (paused || active || UserDragging) return;
+        KeepPinnedOnTop();
         KeepOthersOverSlid();
         var (spilling, others, covered) = ReadStacking();
         if (spilling.Count == 0) return;
@@ -2792,7 +2793,7 @@ sealed partial class Canvas
                 var f = Dwm.FrameBounds(h);
                 if (otherMonitors.Any(m => Overlaps(f, m))) spilling.Add((h, f));
             }
-            else if (elsewhere.Contains(h))
+            else if (elsewhere.Contains(h) && PinnedAppOf(h) == null)
             {
                 var f = Dwm.FrameBounds(h);
                 covered |= spilling.Any(s => Overlaps(s.frame, f));

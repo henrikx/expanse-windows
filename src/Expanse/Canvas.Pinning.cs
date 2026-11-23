@@ -93,19 +93,138 @@ sealed partial class Canvas
         if (on)
         {
             RememberTopmost(w);
-            SetWindowPos(w.Hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags | Async(w));
+            uint async = Async(w);
+            bool asked = SetWindowPos(w.Hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags | async);
+            int error = asked ? 0 : System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+            // Nothing says so when it doesn't take: some apps answer by staying as they were. Told once.
+            bool did = (ExStyle(w.Hwnd) & WS_EX_TOPMOST) != 0;
+            if (did || !wontGoOnTop.Contains(w.Hwnd))
+                Log.Info($"on top: {w}: always-on-top {did}, asked {asked}{(error != 0 ? $" (error {error})" : "")}{(async != 0 ? ", hung" : "")}" +
+                    (did ? "" : $", admin {Elevation.AboveUs(w.Hwnd)}, owner {CanvasWindow.Describe(CanvasWindow.RootOwner(w.Hwnd))}, style {ExStyle(w.Hwnd):X}"));
             // That put it over the overlay, where its picture is drawn instead.
             if (active) SetWindowPos(overlay.Hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
         }
         else
         {
+            wontGoOnTop.Remove(w.Hwnd);
             bool was = pinnedWereTopmost.Remove(w.Hwnd, out bool before) && before;
             if (!was && IsWindow(w.Hwnd)) SetWindowPos(w.Hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags | Async(w));
         }
     }
 
-    /// Whether `w` is always-on-top before it's pinned, the first time only.
-    void RememberTopmost(CanvasWindow w) => pinnedWereTopmost.TryAdd(w.Hwnd, (ExStyle(w.Hwnd) & WS_EX_TOPMOST) != 0);
+    /// Whether `w` is always-on-top before it's pinned, the first time only. One Expanse raised over a
+    /// slid group (it was on another monitor) is no longer among those: lowered with them, it would go
+    /// behind the canvas's windows.
+    void RememberTopmost(CanvasWindow w)
+    {
+        bool raised = raisedOthers.Remove(w.Hwnd, out bool before);
+        pinnedWereTopmost.TryAdd(w.Hwnd, raised ? before : (ExStyle(w.Hwnd) & WS_EX_TOPMOST) != 0);
+    }
+
+    /// Pinned apps that couldn't be put in front: still asked each time, but not logged again, nor taken
+    /// off always-on-top first (which would show).
+    readonly HashSet<nint> wontGoOnTop = new();
+
+    /// A pinned app can end up behind a canvas window: some apps clear always-on-top as they come to the
+    /// front, taking it off a window takes it off its owner too, and a canvas window that's always-on-top
+    /// itself comes over it when you go into it. Then the pinned apps are all put in front again, in the
+    /// order they're in.
+    void KeepPinnedOnTop()
+    {
+        if (paused || active || pinnedGroups.Count == 0) return;
+        var behind = PinnedBehind();
+        wontGoOnTop.RemoveWhere(h => behind.All(b => b.app.Hwnd != h));
+        var told = behind.Where(b => !wontGoOnTop.Contains(b.app.Hwnd)).ToList();
+        if (behind.Count > 0)
+        {
+            foreach (var (app, over, topmost) in told)
+                Log.Info($"pinned {app} (always-on-top {topmost}) is behind {(over == 0 ? "nothing yet" : $"{CanvasWindow.Describe(over)} (always-on-top {(ExStyle(over) & WS_EX_TOPMOST) != 0})")}");
+            RaisePinned(again: false);
+            behind = PinnedBehind();
+            if (behind.Any(b => told.Any(t => t.app == b.app)))
+            {
+                // Has the style without being in front: off and on again.
+                RaisePinned(again: true);
+                behind = PinnedBehind();
+            }
+            foreach (var b in behind) wontGoOnTop.Add(b.app.Hwnd);
+            if (told.Count > 0 || behind.Count == 0) Log.Info(behind.Count == 0 ? "pinned apps: in front again"
+                : $"pinned apps: still behind: {string.Join(", ", behind.Select(b => $"{b.app} behind {CanvasWindow.Describe(b.over)}"))}");
+            UpdatePinnedFrames();
+        }
+        LogPinnedStack();
+    }
+
+    /// This desktop's pinned apps that aren't always-on-top, or are behind a canvas window lying over
+    /// them (`over`; 0: none).
+    List<(CanvasWindow app, nint over, bool topmost)> PinnedBehind()
+    {
+        var canvas = windows.Select(w => w.Hwnd).ToHashSet();
+        var above = new List<(nint hwnd, RECT frame)>();
+        var found = new List<(CanvasWindow, nint, bool)>();
+        EnumWindows((h, _) =>
+        {
+            bool isCanvas = canvas.Contains(h);
+            var app = isCanvas ? null : PinnedApp(h);
+            if ((!isCanvas && app == null) || !IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h)) return true;
+            var f = Dwm.FrameBounds(h);
+            if (app == null)
+            {
+                above.Add((h, f));
+                return true;
+            }
+            nint over = above.FirstOrDefault(a => Overlaps(a.frame, f)).hwnd;
+            bool topmost = (ExStyle(h) & WS_EX_TOPMOST) != 0;
+            if ((over != 0 || !topmost) && !IsHungAppWindow(h)) found.Add((app, over, topmost));
+            return true;
+        }, 0);
+        return found;
+    }
+
+    /// Every pinned app in front of everything, the lowest first, so they keep their order. `again`: asking
+    /// wasn't enough (one that has the style but isn't in front), so it's taken off first.
+    void RaisePinned(bool again)
+    {
+        var order = new List<CanvasWindow>();
+        EnumWindows((h, _) =>
+        {
+            if (PinnedApp(h) is CanvasWindow w && IsWindowVisible(h) && !IsIconic(h) && !IsHungAppWindow(h)) order.Add(w);
+            return true;
+        }, 0);
+        order.Reverse();
+        const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        foreach (var w in order)
+        {
+            if (again) SetWindowPos(w.Hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+            SetOnTop(w, true);
+        }
+    }
+
+    string lastPinnedStack = "";
+
+    /// With Detailed Logging: what's on the main screen from the top down to the lowest pinned app, when
+    /// that's changed.
+    void LogPinnedStack()
+    {
+        if (!Log.ToFile) return;
+        var lines = new List<string>();
+        int keep = 0;
+        EnumWindows((h, _) =>
+        {
+            if (!IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h)) return true;
+            var f = Dwm.FrameBounds(h);
+            if (f.Width < 40 || f.Height < 30 || !OnMainScreen(f)) return true;
+            bool pinned = PinnedApp(h) != null;
+            string kind = pinned ? "pinned" : pinnedFrames.Hwnds.Contains(h) ? "frame" : windows.Any(w => w.Hwnd == h) ? "canvas" : "other";
+            lines.Add($"{CanvasWindow.Describe(h)} {kind}{((ExStyle(h) & WS_EX_TOPMOST) != 0 ? " topmost" : "")}{(IsHungAppWindow(h) ? " hung" : "")}");
+            if (pinned) keep = lines.Count;
+            return true;
+        }, 0);
+        string stack = string.Join(" > ", lines.Take(keep + 1));
+        if (stack == lastPinnedStack) return;
+        lastPinnedStack = stack;
+        Log.Info($"stack: {stack}");
+    }
 
     /// A pinned app's real window to `view` (and its picture, with the overlay up). Where it is in
     /// the stack stays: SetOnTop says that.
@@ -164,7 +283,7 @@ sealed partial class Canvas
         if (reached.Count > 0)
             EnumWindows((h, _) =>
             {
-                if (!elsewhere.Contains(h) || !IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h) || IsHungAppWindow(h)) return true;
+                if (!elsewhere.Contains(h) || PinnedAppOf(h) != null || !IsWindowVisible(h) || IsIconic(h) || Dwm.IsCloaked(h) || IsHungAppWindow(h)) return true;
                 var f = Dwm.FrameBounds(h).ToRectD();
                 if (reached.Any(r => r.Intersects(f))) over.Add(h); // top first
                 return true;
@@ -285,6 +404,7 @@ sealed partial class Canvas
         {
             if (g.Waiting is not { Count: > 0 } waiting || LayoutStore.TakeMatch(w, open, waiting) is not SavedWindow e) continue;
             w.Preferred = w.Frame.Size;
+            elsewhere.Remove(h);
             g.Pinned!.Add(w);
             PlacePinned(w, Pinning.OnScreen(new RectD(e.X, e.Y, w.Frame.W, w.Frame.H), PinnedRoom));
             SetOnTop(w, true);
@@ -303,6 +423,7 @@ sealed partial class Canvas
             {
                 g.Pinned!.Remove(gone);
                 pinnedWereTopmost.Remove(gone.Hwnd);
+                wontGoOnTop.Remove(gone.Hwnd);
                 Log.Info($"pinned group \"{g.Name}\": {gone} closed");
             }
     }
