@@ -1830,21 +1830,20 @@ sealed partial class Canvas
     /// The part of the view that isn't under the taskbar, where going to a window takes it.
     RectD WorkView => new(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
 
-    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll) zooms in around the
-    /// pointer, and out onto it (see ZoomOutBy); with Ctrl (and a touchpad pinch, which arrives as Ctrl+wheel) it pans up and down;
-    /// with Shift it pans sideways. `at`: the pointer, in screen coordinates (packed).
-    void Wheel(bool horizontal, int delta, bool ctrl, bool shift, nint at)
+    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll, and its pinch) zooms in
+    /// around the pointer, and out onto it (see ZoomOutBy); with Ctrl + Shift it pans up and down, and
+    /// with Shift sideways (see Scrolling.Of). `at`: the pointer, in screen coordinates (packed).
+    void Wheel(ScrollDoes does, int amount, nint at)
     {
         var screen = new Vec((short)(at & 0xFFFF), (short)((at >> 16) & 0xFFFF));
         if (TreePanel.Contains(new Vec(screen.X - monitor.Left, screen.Y - monitor.Top)))
         {
-            if (!horizontal) ScrollTree(delta);
+            if (does != ScrollDoes.PanX) ScrollTree(amount);
             return;
         }
         double step = 0.5 * UiScale; // 60 px a notch at 100%
-        if (horizontal) PanBy(new Vec(-delta * step, 0));
-        else if (shift) PanBy(new Vec(delta * step, 0));
-        else if (ctrl) PanBy(new Vec(0, delta * step));
+        if (does == ScrollDoes.PanX) PanBy(new Vec(amount * step, 0));
+        else if (does == ScrollDoes.PanY) PanBy(new Vec(0, amount * step));
         else
         {
             var pointer = new Vec(screen.X - monitor.Left, screen.Y - monitor.Top);
@@ -1854,14 +1853,52 @@ sealed partial class Canvas
                 // A border drag goes by how far the pointer has come at this zoom.
                 if (drag.What == DragKind.WindowResize) return;
                 zoomOut = null;
-                ZoomBy(Math.Pow(1.2, delta / 120.0), pointer);
+                ZoomBy(Math.Pow(1.2, amount / 120.0), pointer);
             }
-            else if (delta < 0) ZoomOutBy(-delta / 120.0, pointer);
-            else ZoomInBy(delta / 120.0, pointer);
+            else if (amount < 0) ZoomOutBy(-amount / 120.0, pointer);
+            else ZoomInBy(amount / 120.0, pointer);
             return;
         }
         // A wheel's turns (and a touchpad's) say nothing of when the scroll ends: a pause is the end.
         SetTimer(overlay.Hwnd, ScrollEndTimer, 250, 0);
+    }
+
+    /// A wheel turn over the empty desktop (WM_DESKTOP_WHEEL), unpacked.
+    static (ScrollDoes does, int amount) DesktopTurn(nint wParam)
+    {
+        int flags = (int)(wParam & 0xFFFF);
+        return Scrolling.Of((flags & DesktopInput.Horizontal) != 0, (short)((wParam >> 16) & 0xFFFF),
+            (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0);
+    }
+
+    readonly ScrollStart scrollStart = new();
+
+    /// A scroll over the empty desktop, at 100%: the overlay rises where you are once it has come far
+    /// enough to mean it (ScrollStart), and all of it acts on the canvas. So do the turns made while
+    /// the overlay was rising, which were still the desktop's; the ones after reach the overlay itself.
+    void ScrollFromDesktop(nint wParam, nint at)
+    {
+        var (does, amount) = DesktopTurn(wParam);
+        if (scrollStart.Add(does, amount, Environment.TickCount64) is not int far) return;
+        Log.Info("scroll on the desktop: onto the canvas from 100%");
+        Enter(zoomOut: true, overview: false);
+        var sums = new int[3];
+        sums[(int)does] = far;
+        int late = 0;
+        while (PeekMessage(out var m, overlay.Hwnd, DesktopInput.WM_DESKTOP_WHEEL, DesktopInput.WM_DESKTOP_WHEEL, 1 /* PM_REMOVE */))
+        {
+            // Comes whatever was asked for: back for the message loop.
+            if (m.message == WM_QUIT) { PostQuitMessage((int)m.wParam); return; }
+            var (what, more) = DesktopTurn(m.wParam);
+            sums[(int)what] += more;
+            at = m.lParam;
+            late++;
+        }
+        if (late > 0) Log.Info($"scroll on the desktop: {late} more turns while rising");
+        if (!active) return;
+        // The zoom last: moving the canvas stops a zoom's glide.
+        foreach (var what in new[] { ScrollDoes.PanX, ScrollDoes.PanY, ScrollDoes.Zoom })
+            if (sums[(int)what] != 0) Wheel(what, sums[(int)what], at);
     }
 
     const nint ScrollEndTimer = 10;
@@ -3267,10 +3304,11 @@ sealed partial class Canvas
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL:
             {
-                // See Wheel: the wheel zooms, Ctrl pans up and down, Shift pans sideways.
                 if (!active || gliding || drag != null) return 0;
                 int keys = (int)(wParam & 0xFFFF);
-                Wheel(msg == WM_MOUSEHWHEEL, (short)((wParam >> 16) & 0xFFFF), (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, lParam);
+                int delta = (short)((wParam >> 16) & 0xFFFF);
+                var (does, amount) = Scrolling.Of(msg == WM_MOUSEHWHEEL, delta, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0);
+                Wheel(does, amount, lParam);
                 return 0;
             }
             case DesktopInput.WM_DESKTOP_CLICK:
@@ -3282,19 +3320,8 @@ sealed partial class Canvas
                 }
                 return 0;
             case DesktopInput.WM_DESKTOP_WHEEL:
-            {
-                // From 100%: the overlay rises where you are, and this turn (and the ones after,
-                // which reach the overlay itself) acts on the canvas: see Wheel. 100% is as far
-                // in as it goes, so a plain turn up has nothing to do.
-                if (active || paused || gliding) return 0;
-                if ((short)((wParam >> 16) & 0xFFFF) > 0 && (wParam & 0xFFFF) == 0) return 0;
-                Log.Info("scroll on the desktop: onto the canvas from 100%");
-                Enter(zoomOut: true, overview: false);
-                int flags = (int)(wParam & 0xFFFF);
-                Wheel((flags & DesktopInput.Horizontal) != 0, (short)((wParam >> 16) & 0xFFFF),
-                    (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0, lParam);
+                if (!active && !paused && !gliding) ScrollFromDesktop(wParam, lParam);
                 return 0;
-            }
             case DesktopInput.WM_DESKTOP_MIDDLE:
             {
                 // From 100%: a middle-button drag from the empty desktop, or with Ctrl+Alt from over

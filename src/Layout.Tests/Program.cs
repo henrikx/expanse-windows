@@ -54,6 +54,7 @@ FramePacingTests.Run(Expect);
 EasingTests.Run(Expect);
 WarmingTests.Run(Expect);
 PinningTests.Run(Expect);
+ScrollingTests.Run(Expect);
 int groupRules = passes - byHand;
 
 // --- 2. Against the Swift ---

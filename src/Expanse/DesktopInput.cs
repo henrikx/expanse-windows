@@ -12,7 +12,7 @@ namespace Expanse;
 /// A low-level mouse hook sees the clicks and wheel turns. It runs on a thread of its own, so the
 /// pointer never waits on Expanse's UI thread (Windows holds every mouse event until a hook
 /// returns), and only posts the canvas a message. Wheel turns over the desktop are kept from it
-/// (Ctrl+wheel would resize its icons); clicks go through as usual.
+/// (Ctrl+wheel would resize its icons), on the main monitor; clicks go through as usual.
 sealed class DesktopInput : IDisposable
 {
     public const uint WM_DESKTOP_CLICK = WM_APP + 4, WM_DESKTOP_WHEEL = WM_APP + 5, WM_DESKTOP_MIDDLE = WM_APP + 20;
@@ -101,7 +101,8 @@ sealed class DesktopInput : IDisposable
                     break;
                 case WM_MOUSEWHEEL:
                 case WM_MOUSEHWHEEL:
-                    if (!IsDesktop(m.pt)) break;
+                    // Not for the other monitors: no canvas there.
+                    if (!IsDesktop(m.pt) || !OnMainMonitor(m.pt)) break;
                     int flags = ((uint)wParam == WM_MOUSEHWHEEL ? Horizontal : 0) |
                                 (GetAsyncKeyState(VK_CONTROL) < 0 ? Ctrl : 0) | (GetAsyncKeyState(VK_SHIFT) < 0 ? Shift : 0);
                     PostMessage(overlay, WM_DESKTOP_WHEEL, (nint)(((m.mouseData >> 16) << 16) | (uint)flags), Pack(m.pt));
@@ -121,6 +122,9 @@ sealed class DesktopInput : IDisposable
         nint root = GetAncestor(WindowFromPoint(p), GA_ROOT);
         return root != 0 && ClassName(root) is "Progman" or "WorkerW";
     }
+
+    static bool OnMainMonitor(POINT p) =>
+        MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST) == MonitorFromPoint(new POINT(0, 0), MONITOR_DEFAULTTOPRIMARY);
 
     /// After a click on the desktop: true if it left no icon selected (a click on empty desktop
     /// clears the selection; one on an icon selects it).

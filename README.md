@@ -88,7 +88,7 @@ start it with Windows.
 | Rest the pointer in a screen corner, or press <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>`</kbd> | Zoom out to every window (do it again to go back) |
 | Click a window | Glide to it and start using it |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Hop to the next window in that direction |
-| Scroll | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
+| Scroll, or pinch on a touchpad | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
 | Middle-button drag | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
 | Drag a window's edge or corner while zoomed out | Resize it when you let go, along with the windows of about the same size if it's in a stack; its edges snap to other windows. Not larger than the screen, and an app that won't take the size gets as close as it allows. Only above Group Selection Zoom |
@@ -104,11 +104,11 @@ start it with Windows.
 | Do this | To |
 |---|---|
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>C</kbd> | Centre the window you're in |
-| <kbd>Ctrl</kbd> + scroll | Move up and down |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + scroll | Move up and down |
 | <kbd>Shift</kbd> + scroll | Move sideways |
 | <kbd>Space</kbd> + drag | Move around the canvas, starting anywhere |
 | Click empty desktop | Zoom out to every window |
-| Scroll on empty desktop | Start zooming out from 100% |
+| Scroll or pinch on empty desktop | Start zooming out from 100% |
 | Middle-button drag on empty desktop | Move around the canvas from 100% |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + middle-button drag | Move around the canvas from 100%, starting over any window |
 | Click or drag in the minimap | Move the view there |
