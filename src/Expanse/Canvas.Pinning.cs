@@ -830,6 +830,7 @@ sealed partial class Canvas
         var delta = p - d.StartPoint;
         if (d.What == DragKind.GroupResize)
         {
+            if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return;
             d.Moved = true;
             g.Box = Groups.ResizeBox(d.StartBox, g.Box, d.Edges, delta, d.Required, others);
             Redraw();

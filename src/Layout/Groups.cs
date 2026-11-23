@@ -252,6 +252,18 @@ public static class Groups
         return Grow(current, Resizing.Resize(start, edges, delta, minimum, required), others);
     }
 
+    /// The smallest a drag of all its borders makes `box`. `required` is the box round its members
+    /// (null: it's empty, so it keeps its top-left and shrinks to its minimum size), and no side
+    /// goes outside `box`.
+    public static RectD Smallest(RectD box, RectD? required)
+    {
+        if (required == null) return new(box.X, box.Y, Math.Min(box.W, MinWidth), Math.Min(box.H, MinHeight));
+        var r = required.Value;
+        double left = Math.Max(box.X, r.X), top = Math.Max(box.Y, r.Y);
+        double right = Math.Min(box.Right, r.Right), bottom = Math.Min(box.Bottom, r.Bottom);
+        return new(left, top, right - left, bottom - top);
+    }
+
     /// The same drag with its edges snapped to `snapTo` (see Layout.SnapEdges). The box's rules come
     /// after the snap, so its apps and the other groups still have the last word, and a snap they
     /// turn down leaves no guide line behind.

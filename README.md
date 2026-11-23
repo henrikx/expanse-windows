@@ -120,6 +120,7 @@ start it with Windows.
 | Click the button left of a stack's tabs | Make every window in the stack the size of the one in front and line them up with it. An app that won't take that size gets as close as it allows |
 | Select windows, then click **New Group** | Put a named box round them |
 | Click a group · drag it · drag its border | Go to its apps at 100% · move it with its apps · resize the box, its edges snapping to other windows and groups |
+| Double-click a group's border | Shrink its box to the smallest that fits its apps where they are |
 | Click an app in a group, at 50% zoom or less (the groups' boxes turn dark and stack tabs fade out; change the zoom at tray icon › Group Selection Zoom) · right-click one at any zoom | Go to the group, not just that app, with that app focused |
 | Right-click an app in no group | Go into it, as a click does |
 | Click the pin by a group's name | Pin the group to the screen, or put it back on the canvas |

@@ -36,8 +36,8 @@ sealed partial class Canvas
     /// Where a right press landed, until the button comes up.
     CanvasWindow? rightPressed;
     readonly RenameBox renameBox = new();
-    /// The last press on a label, to tell a double click (the overlay's class doesn't ask for them).
-    (long id, long at, Vec p) lastLabelPress;
+    /// The last press on a label or border, to tell a double click (the overlay's class doesn't ask for them).
+    (long id, GroupPart part, long at, Vec p) lastPress;
     /// A window from another monitor has joined but isn't at its spot yet (see FinishDragIn).
     bool holdSettling;
     const string NewGroupText = "New Group";
@@ -392,15 +392,17 @@ sealed partial class Canvas
             case GroupPart.Trash:
                 DeleteGroup(g);
                 return false;
-            case GroupPart.Label when IsDoubleClick(g, p):
+            case GroupPart.Label when IsDoubleClick(g, part, p):
                 ClearSelection();
                 StartRename(g);
+                return false;
+            case GroupPart.Border when IsDoubleClick(g, part, p):
+                ShrinkToFit(g);
                 return false;
             case GroupPart.Border when g.Pinned != null:
                 drag = new Drag(DragKind.GroupResize, p)
                 {
-                    Group = g, StartBox = g.Box, Edges = edges,
-                    Required = g.Pinned.Count == 0 ? null : Groups.Fit(g.Pinned.Select(w => w.Frame)),
+                    Group = g, StartBox = g.Box, Edges = edges, Required = RequiredBox(g),
                 };
                 SetCursor(LoadCursor(0, ResizeCursor(edges)));
                 return true;
@@ -438,16 +440,35 @@ sealed partial class Canvas
 
     RectD? RequiredBox(CanvasGroup g)
     {
+        if (g.Pinned != null) return g.Pinned.Count == 0 ? null : Groups.Fit(g.Pinned.Select(w => w.Frame));
         var members = MembersOf(g);
         return members.Count == 0 ? null : Groups.Fit(members.Select(GroupFrame));
     }
 
-    bool IsDoubleClick(CanvasGroup g, Vec p)
+    bool IsDoubleClick(CanvasGroup g, GroupPart part, Vec p)
     {
         long now = Environment.TickCount64;
-        bool twice = lastLabelPress.id == g.Id && now - lastLabelPress.at <= GetDoubleClickTime() && lastLabelPress.p.DistanceTo(p) < 6;
-        lastLabelPress = twice ? default : (g.Id, now, p);
+        bool twice = lastPress.id == g.Id && lastPress.part == part && now - lastPress.at <= GetDoubleClickTime() && lastPress.p.DistanceTo(p) < 6;
+        lastPress = twice ? default : (g.Id, part, now, p);
         return twice;
+    }
+
+    /// A double click on a border: the box shrinks to the smallest that fits its apps where they are.
+    void ShrinkToFit(CanvasGroup g)
+    {
+        var box = Groups.Smallest(g.Box, RequiredBox(g));
+        if (box == g.Box) return;
+        g.Box = box;
+        Log.Info($"group \"{g.Name}\" fitted to its apps: {g.Box}");
+        if (g.Pinned != null)
+        {
+            ScheduleSave();
+            Redraw();
+            return;
+        }
+        SettleGroups();
+        ScheduleSave();
+        Relayout();
     }
 
     /// The border and body drags (see DragTo).
@@ -463,6 +484,7 @@ sealed partial class Canvas
         var others = OtherBoxes(g);
         if (d.What == DragKind.GroupResize)
         {
+            if (!d.Moved && p.DistanceTo(d.StartPoint) < 3) return;
             d.Moved = true;
             if (snap)
             {

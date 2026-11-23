@@ -121,6 +121,16 @@ static class GroupTests
         Same("border: stops at another group", new(0, 0, 800 - G, 300), Groups.ResizeBox(edit, edit, ResizeEdges.Right, new(900, 0), keep, [new(800, 0, 100, 100)]));
         Same("border: the corner too", new(0, 0, 500, 350), Groups.ResizeBox(edit, edit, ResizeEdges.Right | ResizeEdges.Bottom, new(100, 50), keep, []));
 
+        // --- Shrinking a group to its apps ---
+        var wide = new RectD(0, 0, 400, 300);
+        Same("smallest: its apps' box", new(40, 30, 200, 100), Groups.Smallest(wide, new RectD(40, 30, 200, 100)));
+        Same("smallest: never outside the box", new(0, 0, 400, 250), Groups.Smallest(wide, new RectD(-50, -20, 600, 270)));
+        Same("smallest: already smallest", wide, Groups.Smallest(wide, wide));
+        Same("smallest: an empty group keeps its top-left", new(10, 20, Groups.MinWidth, Groups.MinHeight), Groups.Smallest(new(10, 20, 400, 300), null));
+        Same("smallest: an empty group under the minimum on one axis", new(10, 20, 100, Groups.MinHeight), Groups.Smallest(new(10, 20, 100, 300), null));
+        var least = Groups.Smallest(wide, new RectD(-50, 100, 500, 100));
+        expect("smallest: inside the box", least.X >= wide.X && least.Y >= wide.Y && least.Right <= wide.Right && least.Bottom <= wide.Bottom, $"{least}");
+
         // --- Where clicking a group looks ---
         var workArea = new RectD(0, 0, 1000, 800);
         var o = Groups.FocusOrigin(new(0, 0, 500, 400), null, workArea);
