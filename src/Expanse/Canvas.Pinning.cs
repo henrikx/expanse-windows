@@ -374,6 +374,24 @@ sealed partial class Canvas
         return ok;
     }
 
+    /// The desktop changed while zoomed out: the pictures of the pinned apps that went with the old one
+    /// (`before`) go, and those of the new one's come.
+    void ShowPinnedPictures(IReadOnlyList<CanvasWindow> before)
+    {
+        var now = PinnedApps.ToList();
+        foreach (var w in before.Except(now))
+        {
+            pictures.Remove(w);
+            if (hovered == w) hovered = null;
+        }
+        foreach (var w in now.Except(before).Where(w => IsWindowVisible(w.Hwnd) && !IsIconic(w.Hwnd)))
+        {
+            pictures.Add(w);
+            pictures.Pin(w, true);
+            pictures.Moved(w, camera, View);
+        }
+    }
+
     // MARK: Sync
 
     /// Seen by Sync: its title and where it is. Nothing else changes here; a drag of it is settled

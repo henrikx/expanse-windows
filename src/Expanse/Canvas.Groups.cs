@@ -51,11 +51,13 @@ sealed partial class Canvas
     {
         var (desktops, current) = VirtualDesktops.ReadIds();
         var from = groupsAway.Here;
+        var pinnedBefore = PinnedApps.ToList();
         bool moved = groupsAway.Follow(groups, desktops, current);
         if (!pinnedAway.Follow(pinnedGroups, desktops, current) && !moved)
             return false;
         Log.Info($"groups: desktop {from} -> {current}, {groups.Count} here ({pinnedGroups.Count} pinned), {groupsAway.Away.Count() + pinnedAway.Away.Count()} on others");
-        if (!active) UpdatePinnedFrames();
+        if (active) ShowPinnedPictures(pinnedBefore);
+        else UpdatePinnedFrames();
         renameBox.Finish(save: true, byKey: false);
         hoveredGroup = null;
         selectedGroups.Clear();
