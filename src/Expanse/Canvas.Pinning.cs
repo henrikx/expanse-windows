@@ -415,6 +415,28 @@ sealed partial class Canvas
         return false;
     }
 
+    /// Since when apps of another desktop's pinned groups have been showing here (0: none are).
+    long awayPinnedSince;
+
+    /// `h` is in a pinned group of another desktop, so it's not taken onto this one's canvas: just after
+    /// switching, its group may not be here yet (Windows shows the windows before it says which desktop
+    /// you're on). One you show on every desktop, or moved to this one, stays in its group too.
+    bool PinnedElsewhere(nint h) => pinnedAway.Away.Any(a => a.Item.Pinned!.Any(w => w.Hwnd == h));
+
+    /// After each sync: while such apps have only just come, the desktop is asked again shortly, for their
+    /// groups to come too. Not for good: one shown on every desktop is always here.
+    void AwaitPinnedDesktop(bool appsHere)
+    {
+        if (!appsHere)
+        {
+            awayPinnedSince = 0;
+            return;
+        }
+        long now = Environment.TickCount64;
+        if (awayPinnedSince == 0) awayPinnedSince = now;
+        if (now - awayPinnedSince < 1500) ScheduleSync();
+    }
+
     /// Closed apps leave their pinned groups. Minimised or hidden ones stay: they come back to it.
     void PrunePinned()
     {

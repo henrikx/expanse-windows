@@ -242,11 +242,14 @@ sealed partial class Canvas
         var added = new List<CanvasWindow>();
         ownedArrived.Clear();
         ownedLeft.Clear();
+        // First: another desktop's pinned apps are told from the canvas's by its groups being here.
+        FollowDesktop();
         var admin = new List<nint>();
         var found = CanvasWindow.Scan(admin); // topmost first
         NoteAdminWindows(admin);
         var known = windows.ToDictionary(w => w.Hwnd);
         var next = new List<CanvasWindow>(found.Count);
+        bool awayPinned = false;
         for (int i = found.Count - 1; i >= 0; i--)
         {
             nint h = found[i];
@@ -259,6 +262,11 @@ sealed partial class Canvas
             if (!known.TryGetValue(h, out var w))
             {
                 if (ClaimForPinned(h)) continue;
+                if (PinnedElsewhere(h))
+                {
+                    awayPinned = true;
+                    continue;
+                }
                 if (h == draggingIn) continue; // it joins where it's dropped (see FinishDragIn)
                 // Dragged back from another monitor: it joins where it's dropped, not the moment its
                 // centre crosses (see HeldInDrag).
@@ -377,6 +385,7 @@ sealed partial class Canvas
         }
         var removed = windows.Except(next).Where(w => PinnedGroupOf(w) == null).ToList();
         PrunePinned();
+        AwaitPinnedDesktop(awayPinned);
         foreach (var gone in removed)
         {
             // Still there, just minimised, hidden or cloaked: it'll come back to its spot.
