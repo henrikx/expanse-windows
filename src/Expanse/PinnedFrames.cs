@@ -50,6 +50,9 @@ sealed class PinnedFrames
     /// The dock button's picture: a window with a panel docked at that side (E90C / E90D).
     public const string DockLeftGlyph = "\uE90C", DockRightGlyph = "\uE90D";
 
+    /// The slide-out strip's picture: a chevron towards that side (-1 left, 1 right).
+    public static string SlideGlyph(int edge) => edge < 0 ? "\uE76B" : "\uE76C";
+
     readonly Dictionary<long, Frame> byId = new();
     readonly WndProc proc; // kept alive: Windows holds a pointer to it
     readonly nint instance;
@@ -206,7 +209,7 @@ sealed class PinnedFrames
             chevron.TextAlignment = TextAlignment.Center;
             chevron.ParagraphAlignment = ParagraphAlignment.Center;
             using var chevronInk = target.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, Faint));
-            target.DrawText(look.Edge < 0 ? "\uE76B" : "\uE76C", chevron, new Vortice.RawRectF(h.X, h.Y, h.X + h.Width, h.Y + h.Height), chevronInk);
+            target.DrawText(SlideGlyph(look.Edge), chevron, new Vortice.RawRectF(h.X, h.Y, h.X + h.Width, h.Y + h.Height), chevronInk);
         }
         var swatch = Local(look.Swatch);
         target.FillEllipse(new Ellipse(new Vector2(swatch.X + swatch.Width / 2, swatch.Y + swatch.Height / 2), swatch.Width / 2, swatch.Height / 2), colour);

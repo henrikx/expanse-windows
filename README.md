@@ -163,9 +163,10 @@ app. Drag an app out of the box to put it on the canvas, or one in to add it. Th
 pin (blue when on) makes going to a window keep clear of a group at an edge of the screen, centring it in the rest, never under
 the group; off, the group stays over whatever is behind it. A
 maximised app can't be pinned.
-A pinned group snapped to the left or right of the screen has a strip along that side: click it
-to slide the group out through the side, apps and all, until about a tenth of them shows. Click what's
-left of it, or one of its apps, to bring it back. Going to a window keeps clear of what's left.
+A pinned group snapped to the left or right of the screen has a strip along that side, at 100% and
+zoomed out: click it to slide the group out through the side, apps and all, until about a tenth of
+them shows. Click what's left of it, or one of its apps, to bring it back. Going to a window keeps
+clear of what's left.
 
 **The groups panel** on the right of the canvas lists every group and its apps, with the apps in
 no group under Other apps. Click a row to go there. The search bar looks through group names, app

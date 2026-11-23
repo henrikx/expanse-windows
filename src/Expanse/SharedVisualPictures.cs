@@ -114,6 +114,9 @@ sealed class SharedVisualPictures : IPictures
     readonly Dictionary<long, (Strips fill, Strips edge)> groupBoxes = new();
     /// The groups whose boxes are in pinnedBoxLayer, over the pictures (see SetGroups).
     readonly HashSet<long> boxesOnTop = new();
+    /// The strip on a pinned group's box that slides it out, with its chevron.
+    readonly Dictionary<long, (Strips strip, IDCompositionVisual2 chevron)> groupHandles = new();
+    IDCompositionSurface? slideLeftSurface, slideRightSurface;
     readonly Dictionary<long, Swatch> groupSwatches = new();
     readonly IDCompositionVisual2 groupBoxLayer, pinnedBoxLayer, pinnedLayer, groupLabels, buttonLayer;
     /// The pictures in pinnedLayer, not canvas (see Pin).
@@ -668,6 +671,8 @@ sealed class SharedVisualPictures : IPictures
             Replace(ref dockLeftOnSurface, DrawButton(PinnedFrames.DockLeftGlyph, groups[0].Trash.H, scale, on: true));
             Replace(ref dockRightSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale));
             Replace(ref dockRightOnSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale, on: true));
+            Replace(ref slideLeftSurface, DrawButton(PinnedFrames.SlideGlyph(-1), Pinning.HandleWidth * scale, scale, bare: true));
+            Replace(ref slideRightSurface, DrawButton(PinnedFrames.SlideGlyph(1), Pinning.HandleWidth * scale, scale, bare: true));
         }
         foreach (var g in groups)
         {
@@ -688,6 +693,7 @@ sealed class SharedVisualPictures : IPictures
             if (!groupBoxes.ContainsKey(g.Id) || boxesOnTop.Contains(g.Id) != g.Pinned)
             {
                 if (groupBoxes.Remove(g.Id, out var old)) { old.fill.Dispose(); old.edge.Dispose(); }
+                DropHandle(g.Id); // made again, over the new box
                 var layer = g.Pinned ? pinnedBoxLayer : groupBoxLayer;
                 groupBoxes[g.Id] = (new Strips(this, 0, 0, 0, 0, layer), new Strips(this, 0, 0, 0, 0, layer));
                 if (g.Pinned) boxesOnTop.Add(g.Id); else boxesOnTop.Remove(g.Id);
@@ -703,6 +709,7 @@ sealed class SharedVisualPictures : IPictures
             var edges = new List<RectD>(4);
             Outline(edges, g.Box, g.Pinned ? Math.Max(1, Math.Round(scale * 2)) : thin);
             edge.Set(edges);
+            SetHandle(g, edgeTint);
             var swatch = groupSwatches[g.Id];
             if (swatch.Colour != g.Colour || swatch.Scale != scale || swatch.Size != (int)Math.Round(g.Swatch.H)) DrawSwatch(swatch, g.Colour, g.Swatch.H, scale);
             swatch.Visual.SetOffsetX((float)Math.Round(g.Swatch.X));
@@ -749,6 +756,7 @@ sealed class SharedVisualPictures : IPictures
                 box.edge.Dispose();
             }
             boxesOnTop.Remove(id);
+            DropHandle(id);
             groupSwatches.Remove(id, out var circle);
             circle!.Dispose();
         }
@@ -765,6 +773,36 @@ sealed class SharedVisualPictures : IPictures
             newGroupTitle.Visual.SetOffsetY((float)Math.Round(b.Y));
             buttonLayer.AddVisual(newGroupTitle.Visual, false, null);
         }
+    }
+
+    /// The strip that slides a pinned group out, on its box; none if it has none now.
+    void SetHandle(GroupDrawing g, Tint tint)
+    {
+        if (!g.Pinned || g.Handle.W <= 0)
+        {
+            DropHandle(g.Id);
+            return;
+        }
+        if (!groupHandles.TryGetValue(g.Id, out var h))
+        {
+            var strip = new Strips(this, 0, 0, 0, 0, pinnedBoxLayer);
+            device.CreateVisual(out var chevron);
+            pinnedBoxLayer.AddVisual(chevron, false, null);
+            groupHandles[g.Id] = h = (strip, chevron);
+        }
+        h.strip.SetColour(tint.R, tint.G, tint.B, tint.A);
+        h.strip.Set([g.Handle]);
+        h.chevron.SetContent(g.Edge < 0 ? slideLeftSurface : slideRightSurface);
+        h.chevron.SetOffsetX((float)Math.Round(g.Handle.X));
+        h.chevron.SetOffsetY((float)Math.Round(g.Handle.MidY - g.Handle.W / 2));
+    }
+
+    void DropHandle(long id)
+    {
+        if (!groupHandles.Remove(id, out var h)) return;
+        h.strip.Dispose();
+        pinnedBoxLayer.RemoveVisual(h.chevron);
+        h.chevron.Dispose();
     }
 
     /// The groups panel, drawn like the minimap: a surface of its own, redrawn only when it changes.
@@ -1026,7 +1064,8 @@ sealed class SharedVisualPictures : IPictures
 
     /// A label row's round button: a dark circle with a white glyph every Windows has (the garbage
     /// can, a pin).
-    IDCompositionSurface DrawButton(string glyphText, double height, double scale, bool on = false)
+    /// `bare`: the glyph alone, smaller, without the round button.
+    IDCompositionSurface DrawButton(string glyphText, double height, double scale, bool on = false, bool bare = false)
     {
         float size = (float)Math.Round(height);
         device.CreateSurface((uint)size, (uint)size, Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied, out var surface);
@@ -1036,7 +1075,7 @@ sealed class SharedVisualPictures : IPictures
                    BitmapOptions.Target | BitmapOptions.CannotDraw)))
         using (var dark = d2d.CreateSolidColorBrush(on ? new Color4(46 / 255f, 110 / 255f, 220 / 255f, 1f) : new Color4(32 / 255f, 32 / 255f, 34 / 255f, 1f)))
         using (var white = d2d.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, 1f)))
-        using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(12 * scale)))
+        using (var glyph = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)((bare ? 10 : 12) * scale)))
         {
             glyph.TextAlignment = TextAlignment.Center;
             glyph.ParagraphAlignment = ParagraphAlignment.Center;
@@ -1045,7 +1084,7 @@ sealed class SharedVisualPictures : IPictures
             d2d.Transform = Matrix3x2.CreateTranslation(offset.X, offset.Y);
             d2d.PushAxisAlignedClip(new Vortice.RawRectF(0, 0, size, size), AntialiasMode.Aliased);
             d2d.Clear(new Color4(0, 0, 0, 0));
-            d2d.FillEllipse(new Ellipse(new Vector2(size / 2, size / 2), size / 2, size / 2), dark);
+            if (!bare) d2d.FillEllipse(new Ellipse(new Vector2(size / 2, size / 2), size / 2, size / 2), dark);
             d2d.DrawText(glyphText, glyph, new Vortice.RawRectF(0, 0, size, size), white);
             d2d.PopAxisAlignedClip();
             d2d.EndDraw();
@@ -1495,6 +1534,9 @@ sealed class SharedVisualPictures : IPictures
         pinSurface?.Dispose();
         pinnedSurface?.Dispose();
         if (newGroupTitle != null) Dispose(newGroupTitle);
+        foreach (long id in groupHandles.Keys.ToList()) DropHandle(id);
+        slideLeftSurface?.Dispose();
+        slideRightSurface?.Dispose();
         trashSurface?.Dispose();
         treeSurface?.Dispose();
         treeVisual.Dispose();

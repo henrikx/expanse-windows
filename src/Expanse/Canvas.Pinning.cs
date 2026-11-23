@@ -263,12 +263,12 @@ sealed partial class Canvas
     /// A slid-out group's apps and frame reach onto the monitor beside the screen's side, over its windows
     /// (they're always-on-top). Canvas windows there go behind that monitor's own; these, being on top
     /// of everything, can't, so those windows go always-on-top too, raised after them: above the group.
-    /// They go back once nothing of theirs is under a slid group. Not while the overlay is up, which
-    /// covers the main screen only, where the apps are drawn as pictures.
+    /// They go back once nothing of theirs is under a slid group. With the overlay up too, which covers
+    /// the main screen only: then behind it, or one reaching onto the main screen would cover it.
     void KeepOthersOverSlid()
     {
         var spill = new List<RectD>();
-        if (!paused && !active)
+        if (!paused)
             foreach (var g in pinnedGroups.Where(g => g.SlideHome != null || slideMove?.Group == g))
             {
                 // On its way, either way: all it passes over.
@@ -308,7 +308,8 @@ sealed partial class Canvas
         if (fresh.Count == 0 && !PinnedOverRaised()) return;
         nint front = GetForegroundWindow();
         // The top one first and each behind the one before, so none shows over one it was behind.
-        nint before = HWND_TOPMOST;
+        nint top = active ? overlay.Hwnd : HWND_TOPMOST;
+        nint before = top;
         foreach (nint h in fresh)
         {
             raisedOthers[h] = (ExStyle(h) & WS_EX_TOPMOST) != 0;
@@ -321,7 +322,7 @@ sealed partial class Canvas
         if (fresh.Contains(front) && over.Remove(front)) over.Insert(0, front);
         nint batch = BeginDeferWindowPos(over.Count);
         for (int i = 0; i < over.Count && batch != 0; i++)
-            batch = DeferWindowPos(batch, over[i], i == 0 ? HWND_TOPMOST : over[i - 1], 0, 0, 0, 0, flags);
+            batch = DeferWindowPos(batch, over[i], i == 0 ? top : over[i - 1], 0, 0, 0, 0, flags);
         if (batch != 0) EndDeferWindowPos(batch);
     }
 
@@ -667,7 +668,8 @@ sealed partial class Canvas
         var by = box.Origin - m.From.Origin;
         var moved = box.Origin - g.Box.Origin;
         g.Box = box;
-        PlaceTogether(m.Apps.Select(a => (a.w, a.start.Offset(by))).ToList(), active ? 0 : g.Id, moved);
+        // Its frame too zoomed out, under the overlay: the part of it on the next monitor shows.
+        PlaceTogether(m.Apps.Select(a => (a.w, a.start.Offset(by))).ToList(), g.Id, moved);
         if (active) Redraw();
     }
 
@@ -984,12 +986,20 @@ sealed partial class Canvas
         foreach (var g in pinnedGroups)
         {
             var (swatch, label, pin, dock, trash) = LabelRects(g, k);
-            int side = g.SlideHome == null ? Pinning.SnappedSide(g.Box, WorkView, k) : 0;
-            var handle = side == 0 ? default : Pinning.Handle(g.Box, side, k).Offset(screen);
+            var (handle, side) = SlideHandle(g, k);
             wanted.Add((new PinnedFrameLook(g.Id, g.Box.Offset(screen), g.Name, swatch.Offset(screen), label.Offset(screen),
-                pin.Offset(screen), trash.Offset(screen), g.Colour, handle, side, dock.Offset(screen), g.KeepClear, DockSide(g) > 0), LowestPinned(g)));
+                pin.Offset(screen), trash.Offset(screen), g.Colour, handle.Offset(screen), side, dock.Offset(screen), g.KeepClear, DockSide(g) > 0), LowestPinned(g)));
         }
         pinnedFrames.Show(wanted, k);
+    }
+
+    /// The strip that slides the group out, and the side of the screen it's against (0, and an empty one,
+    /// when it isn't against one, is slid out or is on its way).
+    (RectD handle, int side) SlideHandle(CanvasGroup g, double k)
+    {
+        if (g.SlideHome != null || slideMove?.Group == g || pinMove?.Group == g) return default;
+        int side = Pinning.SnappedSide(g.Box, WorkView, k);
+        return side == 0 ? default : (Pinning.Handle(g.Box, side, k), side);
     }
 
     /// The group's app lowest in the stack that's showing (0: none).
@@ -1062,6 +1072,8 @@ sealed partial class Canvas
         }
         foreach (var g in pinnedGroups)
         {
+            // Over the border along it, as at 100%.
+            if (SlideHandle(g, k) is (RectD handle, not 0) && handle.Contains(p)) return (g, GroupPart.Edge, ResizeEdges.None);
             var edges = Resizing.EdgesAt(g.Box, p, BorderGrab * k);
             if (edges != ResizeEdges.None) return (g, GroupPart.Border, edges);
             if (g.Box.Contains(p)) return (g, GroupPart.Body, ResizeEdges.None);
@@ -1074,9 +1086,10 @@ sealed partial class Canvas
         foreach (var g in pinnedGroups)
         {
             var (swatch, label, pin, dock, trash) = LabelRects(g, k);
+            var (handle, side) = SlideHandle(g, k);
             // Growing to its spot, its apps are still pictures: its box stays under them till they're there.
             drawings.Add(new GroupDrawing(g.Id, g.Box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g, g.Colour, Pinned: pinMove?.Group != g,
-                Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0));
+                Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0, Handle: handle, Edge: side));
         }
     }
 }

@@ -2631,8 +2631,10 @@ sealed partial class Canvas
         liftedSinceSave = 0;
         int moved = Commit();
         int waited = WaitForMoves();
-        // In a pinned app (you clicked it, or were in it before zooming out), you stay in it.
-        var stayIn = focus == null ? pinnedFocus ?? PinnedAppOf(previousForeground) : null;
+        // In a pinned app (you clicked it, or were in it before zooming out), you stay in it. Not in one slid
+        // out since: focus would bring its group back in.
+        bool Slid(CanvasWindow w) => PinnedGroupOf(w)?.SlideHome != null;
+        var stayIn = focus == null ? pinnedFocus ?? (PinnedAppOf(previousForeground) is CanvasWindow was && !Slid(was) ? was : null) : null;
         pinnedFocus = null;
         var target = stayIn ?? focus ?? CanvasWindowOf(previousForeground)
             ?? windows.LastOrDefault(w => camera.ToView(w.Frame).Intersects(View));
@@ -2647,6 +2649,8 @@ sealed partial class Canvas
             lastFocusedWindow = target.Hwnd;
             Log.Info($"focus {lastFocus}");
         }
+        // Nothing in view to focus: the desktop, or Windows may pick a slid group's app.
+        else if (pinnedGroups.Any(g => g.SlideHome != null)) Log.Info($"focus on the desktop: {Focus(GetShellWindow())}");
         ReleaseDragIn();
         renameBox.Finish(save: true, byKey: false);
         ResetTree();
@@ -3726,6 +3730,11 @@ sealed partial class Canvas
             Pill(g.Label, g.Name);
             nint textFont = Gdi32.SelectObject(hdc, glyph);
             Pill(g.Pin, g.Pinned ? "\uE840" : "\uE718");
+            if (g.Handle.W > 0)
+            {
+                var strip = new RECT((int)g.Handle.X, (int)g.Handle.Y, (int)g.Handle.Right, (int)g.Handle.Bottom);
+                DrawText(hdc, PinnedFrames.SlideGlyph(g.Edge), -1, ref strip, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+            }
             if (g.Dock.W > 0) Pill(g.Dock, g.DockRight ? PinnedFrames.DockRightGlyph : PinnedFrames.DockLeftGlyph);
             Pill(g.Trash, "\uE74D");
             Gdi32.SelectObject(hdc, textFont);

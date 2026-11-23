@@ -127,9 +127,10 @@ readonly record struct TreeDrawing(RectD Panel, RectD Search, RectD List, string
 
 /// A group in view coordinates: its box, the circle with its colour, its name's pill and the delete
 /// button beside it.
-/// `Pinned`: kept on the screen over the canvas (see Pinning), so drawn over the pictures, solid.
+/// `Pinned`: kept on the screen over the canvas (see Pinning), so drawn over the pictures, solid. `Handle`
+/// and `Edge`: the strip that slides it out, as PinnedFrameLook has them.
 readonly record struct GroupDrawing(long Id, RectD Box, string Name, RectD Swatch, RectD Label, RectD Pin, RectD Trash, bool Hovered, GroupColour Colour, bool Pinned,
-    RectD Dock = default, bool KeepClear = false, bool DockRight = false);
+    RectD Dock = default, bool KeepClear = false, bool DockRight = false, RectD Handle = default, int Edge = 0);
 
 /// The colour wheel in view coordinates. `Shown`: where it is right now, as it grows into `Rect`.
 /// `Marker`: the group's colour on it, once it's grown to `Rect`.

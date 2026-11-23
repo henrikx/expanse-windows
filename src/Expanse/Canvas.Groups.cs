@@ -135,7 +135,7 @@ sealed partial class Canvas
 
     // MARK: Hit-testing
 
-    enum GroupPart { Colour, Label, Pin, Dock, Trash, Border, Body }
+    enum GroupPart { Colour, Label, Pin, Dock, Trash, Edge, Border, Body }
 
     /// A pinned group has the dock button between the pin and the delete button.
     (RectD swatch, RectD label, RectD pin, RectD dock, RectD trash) LabelRects(CanvasGroup g, double k)
@@ -265,7 +265,7 @@ sealed partial class Canvas
         if ((onLabel ?? GroupHitAt(p)) is not (CanvasGroup, GroupPart part, ResizeEdges edges)) return 0;
         return part switch
         {
-            GroupPart.Trash or GroupPart.Pin or GroupPart.Dock => LoadCursor(0, IDC_HAND),
+            GroupPart.Trash or GroupPart.Pin or GroupPart.Dock or GroupPart.Edge => LoadCursor(0, IDC_HAND),
             GroupPart.Colour when pictures.DrawsDecorations => LoadCursor(0, IDC_HAND),
             GroupPart.Border => LoadCursor(0, ResizeCursor(edges)),
             _ => 0,
@@ -385,6 +385,9 @@ sealed partial class Canvas
                 return false;
             case GroupPart.Dock:
                 ToggleKeepClear(g);
+                return false;
+            case GroupPart.Edge:
+                SlideOut(g);
                 return false;
             case GroupPart.Trash:
                 DeleteGroup(g);

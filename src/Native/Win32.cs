@@ -320,6 +320,7 @@ public static class User32
         int x, int y, int w, int h, nint parent, nint menu, nint instance, nint param);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern nint DefWindowProc(nint hwnd, uint msg, nint wParam, nint lParam);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool DestroyWindow(nint hwnd);
+    [DllImport(Dll)] public static extern nint GetShellWindow();
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern int GetMessage(out MSG msg, nint hwnd, uint min, uint max);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool PeekMessage(out MSG msg, nint hwnd, uint min, uint max, uint remove);
     [DllImport(Dll, CharSet = CharSet.Unicode)] public static extern bool TranslateMessage(ref MSG msg);
