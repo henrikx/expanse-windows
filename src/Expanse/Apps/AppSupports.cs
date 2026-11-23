@@ -32,6 +32,16 @@ sealed class AppSupports
         }
     }
 
+    const int LookMs = 1000;
+
+    /// Before a save. With `wait`, there'll be no other after it: what the supports find is in this one, if
+    /// they find it in time.
+    public void Look(bool wait)
+    {
+        var looks = all.ToList().Select(s => Try(s, s.Look)).OfType<Task>().ToArray();
+        if (wait && looks.Length > 0 && !Task.WaitAll(looks, LookMs)) Log.Info("app support: not done looking in time for the save");
+    }
+
     T? Try<T>(IAppSupport s, Func<T> ask)
     {
         try { return ask(); }

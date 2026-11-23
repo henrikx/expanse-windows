@@ -163,7 +163,9 @@ gives them no lasting id. Its session file (`sessionstore.jsonlz4`, or in `sessi
 it runs; rewritten every 15 seconds) has each window's tabs. A window's marks are hashes of its tabs'
 addresses, keyed by a random `marks.key` beside the layout. Which window on the screen is which in the
 file goes by its tabs so far, then the title of the tab it's on, and between equal titles, position
-(`FirefoxWindows`). The file is only read, on another thread, and nothing of it is logged.
+(`FirefoxWindows`). The file is only read, on another thread, and nothing of it is logged. Every
+save of the layout looks for a newer one, and saves again if it finds it; a last save (shutting
+down, quitting, pausing, handing over) waits for it, up to a second.
 
 ## Updates
 

@@ -29,7 +29,7 @@ sealed class FirefoxSupport : IAppSupport
     List<FirefoxWindow>? session;
     List<(string path, DateTime written)> read = [];
     HashSet<uint> pids = [];
-    bool reading;
+    Task look = Task.CompletedTask;
     long checkedAt = -PollMs;
 
     public bool Handles(CanvasWindow w) =>
@@ -38,7 +38,7 @@ sealed class FirefoxSupport : IAppSupport
     public void Start(Action changed)
     {
         this.changed = changed;
-        timer = new Timer(_ => Check(), null, PollMs, PollMs);
+        timer = new Timer(_ => Look(), null, PollMs, PollMs);
     }
 
     public void Stop() => timer?.Dispose();
@@ -55,7 +55,7 @@ sealed class FirefoxSupport : IAppSupport
             if (its.Any(p => !pids.Contains(p))) { session = null; read = []; checkedAt = now - PollMs; }
             pids = its;
             known = session;
-            if (now - checkedAt >= 1000 && !reading) ThreadPool.QueueUserWorkItem(_ => Check());
+            if (now - checkedAt >= 1000) Look();
         }
         if (known == null) return marks;
         var seen = windows.Select(w =>
@@ -73,7 +73,17 @@ sealed class FirefoxSupport : IAppSupport
         return marks;
     }
 
-    /// Reads the session files if they've changed. On a thread of its own.
+    public Task Look()
+    {
+        lock (gate)
+        {
+            if (!look.IsCompleted) return look;
+            checkedAt = Environment.TickCount64;
+            return look = Task.Run(Check);
+        }
+    }
+
+    /// Reads the session files if they've changed. On a thread of its own, one at a time (Look).
     void Check()
     {
         int profiles;
@@ -81,9 +91,7 @@ sealed class FirefoxSupport : IAppSupport
         List<(string path, DateTime written)> last;
         lock (gate)
         {
-            if (reading || pids.Count == 0) return;
-            reading = true;
-            checkedAt = Environment.TickCount64;
+            if (pids.Count == 0) return;
             (profiles, forPids, last) = (pids.Count, pids, read);
         }
         bool news = false;
@@ -105,7 +113,6 @@ sealed class FirefoxSupport : IAppSupport
         // Being written or moved just now, or not what we take it for: the next look may do better. The
         // reason only: a JSON error can quote what it read.
         catch (Exception e) { Log.Info($"Firefox support: couldn't read the session ({e.GetType().Name})"); }
-        finally { lock (gate) reading = false; }
         if (news) changed();
     }
 

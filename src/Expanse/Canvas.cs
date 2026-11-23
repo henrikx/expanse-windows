@@ -569,10 +569,12 @@ sealed partial class Canvas
 
     /// `cleanExit`: windows are about to be put back where they were (quit, pause). `handOver`:
     /// they're staying put for the next Expanse (HandOver).
-    void Save(bool cleanExit = false, bool handOver = false)
+    /// `last`: no more saves follow, for another reason.
+    void Save(bool cleanExit = false, bool handOver = false, bool last = false)
     {
         if (paused || !initialSyncDone || sessionEnding) return;
         HomeFromCanvas();
+        appSupports.Look(wait: cleanExit || handOver || last);
         RefreshMarks();
         // Windows away (minimised, hidden) keep their spots too, and so do saved ones not open now.
         var layout = new SavedLayout
@@ -3206,7 +3208,7 @@ sealed partial class Canvas
             case 0x11 /* WM_QUERYENDSESSION */:
                 // Shutting down or signing out: the layout as it is now is the one to come back to,
                 // not what's left of it as apps close.
-                Save();
+                Save(last: true);
                 sessionEnding = true;
                 Log.Info("session ending: layout saved, no more saves");
                 return 1;
@@ -4368,8 +4370,8 @@ sealed partial class Canvas
         events.Dispose();
         desktopInput.Dispose();
         tray.Dispose();
-        appSupports.Stop();
         Save(handOver: true);
+        appSupports.Stop();
         Originals.Save(windows);
         LetGoOfPinned();
         PostQuitMessage(0);
@@ -4380,13 +4382,13 @@ sealed partial class Canvas
         events.Dispose();
         desktopInput.Dispose();
         tray.Dispose();
-        appSupports.Stop();
         if (!paused)
         {
             Save(cleanExit: true);
             Originals.Restore(windows);
             LetGoOfPinned();
         }
+        appSupports.Stop();
         PostQuitMessage(0);
     }
 

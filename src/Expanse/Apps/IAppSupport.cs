@@ -23,5 +23,9 @@ interface IAppSupport
     /// which is which. Saved in the layout: anything private must be hashed (LayoutStore.TitleKey).
     IReadOnlyDictionary<nint, IReadOnlyList<string>> Marks(IReadOnlyList<CanvasWindow> windows);
 
+    /// Looks for anything new to go by, as the layout is about to be saved, and says so (`changed`) if
+    /// it finds it. The task is done when it has looked.
+    Task Look();
+
     void Stop();
 }
