@@ -3163,6 +3163,7 @@ sealed partial class Canvas
     nint? Handle(uint msg, nint wParam, nint lParam)
     {
         if (msg == tray.TaskbarCreated) { tray.Add(); return 0; }
+        ScrollLog.Message(msg, wParam, lParam);
         // Timers wait for the tray menu to close: left unkilled, each fires again afterwards.
         if (msg == WM_TIMER && tray.MenuOpen) return 0;
         switch (msg)
@@ -3217,6 +3218,7 @@ sealed partial class Canvas
                 EndPanIfMiddleUp();
                 WatchCompositor();
                 desktopInput.Armed = !active && !paused;
+                ScrollLog.Flush(overlay.Hwnd);
                 if (!CompositorSettled) { hotCorner.Disarm(); return 0; }
                 if (!paused && !gliding && animation == null && drag == null && hotCorner.Poll(settings.HotCorner, monitor))
                 {
@@ -3307,8 +3309,11 @@ sealed partial class Canvas
                 if (!active || gliding || drag != null) return 0;
                 int keys = (int)(wParam & 0xFFFF);
                 int delta = (short)((wParam >> 16) & 0xFFFF);
+                var (kind, lag) = Log.ToFile ? (ScrollLog.Describe(msg == WM_MOUSEHWHEEL, keys), ScrollLog.Lag) : (null, 0);
+                long began = Stopwatch.GetTimestamp();
                 var (does, amount) = Scrolling.Of(msg == WM_MOUSEHWHEEL, delta, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0);
                 Wheel(does, amount, lParam);
+                if (kind != null) ScrollLog.Got(kind, delta, Ms(began), lag);
                 return 0;
             }
             case DesktopInput.WM_DESKTOP_CLICK:

@@ -79,6 +79,13 @@ sealed class DesktopInput : IDisposable
             if ((uint)wParam is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN) Interlocked.Exchange(ref lastButtonDown, (int)m.time);
             if (m.extra != OwnInput && (uint)wParam is WM_MBUTTONDOWN or 0x208 /* WM_MBUTTONUP */) MiddleHeld = (uint)wParam == WM_MBUTTONDOWN;
         }
+        if (code >= 0 && Log.ToFile && (uint)wParam is WM_MOUSEWHEEL or WM_MOUSEHWHEEL)
+        {
+            var m = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+            nint root = GetAncestor(WindowFromPoint(m.pt), GA_ROOT);
+            ScrollLog.Seen((uint)wParam == WM_MOUSEHWHEEL, (short)(m.mouseData >> 16), m.flags, m.extra,
+                root == overlay ? "the canvas" : IsDesktop(m.pt) ? "the desktop" : "another window");
+        }
         if (code >= 0 && Armed)
         {
             var m = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
