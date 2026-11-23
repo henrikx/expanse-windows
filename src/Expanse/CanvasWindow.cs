@@ -15,6 +15,8 @@ sealed class CanvasWindow
     /// What to call it: the exe's description ("Microsoft Edge"), as the Mac shows app names.
     public readonly string AppName;
     public string Title;
+    /// What its app's special support knows it by (AppMarks); null until it does.
+    public IReadOnlyList<string>? Marks;
     public RECT Insets;
     public SIZE WindowSize;
     /// Where we last put the visible frame on screen; a window found elsewhere was moved by

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using static Expanse.Native.User32;
 
 namespace Expanse;
@@ -72,6 +73,9 @@ sealed class SavedWindow
     /// they identify the window exactly, even among windows with the same title.
     public long Hwnd { get; set; }
     public uint Pid { get; set; }
+    /// What its app's special support knows it by (AppMarks). Null: no such support, or not known.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Marks { get; set; }
 }
 
 static class LayoutStore
@@ -149,6 +153,7 @@ static class LayoutStore
         X = w.Frame.X, Y = w.Frame.Y, W = w.Frame.W, H = w.Frame.H, Hwnd = w.Hwnd, Pid = w.Pid,
         HX = (w.Home ?? w.Frame.Origin).X, HY = (w.Home ?? w.Frame.Origin).Y,
         PW = w.Preferred.W > 0 ? w.Preferred.W : null, PH = w.Preferred.W > 0 ? w.Preferred.H : null,
+        Marks = w.Marks is { Count: > 0 } ? w.Marks.ToList() : null,
     };
 
     // MARK: Snapshots
@@ -214,12 +219,14 @@ static class LayoutStore
     }
 
     /// Picks the saved entry for a window: the same window (same handle in the same process),
-    /// then same app and title, then same app. Matched entries are removed so two windows never
-    /// claim the same slot, and `open` (windows open now) keeps the fallbacks from taking an
-    /// entry that belongs to another open window, or one away (minimised) and due back.
-    public static SavedWindow? TakeMatch(CanvasWindow w, ISet<(long, uint)> open, List<SavedWindow> pool)
+    /// then its app's marks, then same app and title, then same app (SavedSpots.FindMatch). Matched
+    /// entries are removed so two windows never claim the same slot, and `open` (windows open now)
+    /// keeps the fallbacks from taking an entry that belongs to another open window, or one away
+    /// (minimised) and due back. `knownOnly`: only one its app's marks say is its own.
+    public static SavedWindow? TakeMatch(CanvasWindow w, ISet<(long, uint)> open, List<SavedWindow> pool, bool knownOnly = false)
     {
-        int i = SavedSpots.FindMatch(Seeker(w), Spots(pool), (h, p) => open.Contains((h, p)) || Exists(h, p));
+        bool Taken(long h, uint p) => open.Contains((h, p)) || Exists(h, p);
+        int i = knownOnly ? SavedSpots.FindKnown(Seeker(w), Spots(pool), Taken) : SavedSpots.FindMatch(Seeker(w), Spots(pool), Taken);
         if (i < 0) return null;
         var match = pool[i];
         pool.RemoveAt(i);
@@ -234,8 +241,11 @@ static class LayoutStore
         return i < 0 ? null : pool[i];
     }
 
-    static SpotSeeker Seeker(CanvasWindow w) => new(w.AppPath, w.Class, TitleKey(w.Title), w.Frame.Size, w.Hwnd, w.Pid);
+    /// How alike a window is, by its app's marks, to the entry it's most like.
+    public static double BestLikeness(CanvasWindow w, IEnumerable<SavedWindow> pool) => SavedSpots.BestLikeness(Seeker(w), Spots(pool));
 
-    static List<SavedSpot> Spots(List<SavedWindow> pool) =>
-        pool.Select(e => new SavedSpot(e.App, e.Class, e.Title, e.W, e.H, e.PW, e.PH, e.Hwnd, e.Pid)).ToList();
+    static SpotSeeker Seeker(CanvasWindow w) => new(w.AppPath, w.Class, TitleKey(w.Title), w.Frame.Size, w.Hwnd, w.Pid, w.Marks);
+
+    static List<SavedSpot> Spots(IEnumerable<SavedWindow> pool) =>
+        pool.Select(e => new SavedSpot(e.App, e.Class, e.Title, e.W, e.H, e.PW, e.PH, e.Hwnd, e.Pid, e.Marks)).ToList();
 }

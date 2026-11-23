@@ -417,21 +417,38 @@ sealed partial class Canvas
         if (initialSyncDone && !JustStarted(pid)) return false;
         var w = new CanvasWindow(h);
         w.Frame = ViewFrame(w.ReadScreenFrame());
+        // On the canvas until it's known; then it joins its group (RejoinPinned).
+        if (ShouldWait(w) || PinnedMatch(w) is not var (g, e)) return false;
+        w.Preferred = w.Frame.Size;
+        elsewhere.Remove(h);
+        g.Pinned!.Add(w);
+        PlacePinned(w, Pinning.OnScreen(new RectD(e.X, e.Y, w.Frame.W, w.Frame.H), PinnedRoom));
+        SetOnTop(w, true);
+        g.Box = g.Box.Union(Groups.Fit([w.Frame]));
+        Log.Info($"window {w} at {w.Frame}: back in pinned group \"{g.Name}\"");
+        return true;
+    }
+
+    /// The pinned group it was in when the layout was saved, and where; taken from those waiting.
+    (CanvasGroup g, SavedWindow e)? PinnedMatch(CanvasWindow w)
+    {
         var open = OpenKeys();
         open.UnionWith(PinnedApps.Select(a => ((long)a.Hwnd, a.Pid)));
         foreach (var g in pinnedGroups)
-        {
-            if (g.Waiting is not { Count: > 0 } waiting || LayoutStore.TakeMatch(w, open, waiting) is not SavedWindow e) continue;
-            w.Preferred = w.Frame.Size;
-            elsewhere.Remove(h);
-            g.Pinned!.Add(w);
-            PlacePinned(w, Pinning.OnScreen(new RectD(e.X, e.Y, w.Frame.W, w.Frame.H), PinnedRoom));
-            SetOnTop(w, true);
-            g.Box = g.Box.Union(Groups.Fit([w.Frame]));
-            Log.Info($"window {w} at {w.Frame}: back in pinned group \"{g.Name}\"");
-            return true;
-        }
-        return false;
+            if (g.Waiting is { Count: > 0 } waiting && LayoutStore.TakeMatch(w, open, waiting) is SavedWindow e) return (g, e);
+        return null;
+    }
+
+    /// A window on the canvas, known only now (SettleWaiting), goes back to its pinned group if it was in one.
+    bool RejoinPinned(CanvasWindow w)
+    {
+        if (w.Maximised || !pinnedGroups.Any(g => g.Waiting is { Count: > 0 }) || PinnedMatch(w) is not var (g, e)) return false;
+        TakeOffCanvas(w);
+        w.Preferred = w.Frame.Size;
+        PlacePinned(w, Pinning.OnScreen(new RectD(e.X, e.Y, w.Frame.W, w.Frame.H), PinnedRoom));
+        JoinPinned(g, w, w.Frame);
+        if (active) pictures.Pin(w, true);
+        return true;
     }
 
     /// Since when apps of another desktop's pinned groups have been showing here (0: none are).

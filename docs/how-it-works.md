@@ -142,12 +142,21 @@ the next start after a crash, puts them back), and with Detailed Logging, `expan
 Restore Layout puts every window it knows exactly where the snapshot had it when the snapshot was
 taken on a screen of this size; on another, it fits the snapshot's home spots to this one.
 
-Windows are matched to saved spots by the same window while its app keeps running, then by app and
+Windows are matched to saved spots by the same window while its app keeps running, then by what its
+app's support knows it by (below), then by app and
 title (titles are stored only as hashes), then by app; a window under a quarter of a saved one's
 size (a loading box) doesn't take its spot. Saved spots are used at launch, or for an app that has
 just started; a window a long-running app opens later is placed in free space beside you. With
 Arrange New Windows off, neither happens to a window that opens: it stays where its app and Windows
-put it. Windows at launch and ones coming back from being minimised keep their spots either way.
+put it. Windows at launch, ones coming back from being minimised, and ones their app's support knows
+(below) keep their spots either way.
+
+**Special support for an app** (`src/Expanse/Apps`: an `IAppSupport`, listed in `AppSupports`) is for
+one whose windows can't be told apart by title as it opens again. It gives each window it knows a set
+of marks (`AppMarks`), saved with the window's spot, and a window goes to the spot whose marks are
+most like its own. A window of an app that has just started waits where it opened until its support
+knows it and the app has stopped moving its windows, or its patience runs out; moving it yourself ends the wait. A support that fails is dropped
+until the next launch. No app has one yet.
 
 ## Updates
 
@@ -163,6 +172,7 @@ starts it and hands over as Include Admin Windows does; the new copy deletes the
 | Path | What |
 |---|---|
 | `src/Expanse` | The app |
+| `src/Expanse/Apps` | Special support for apps (see Saving and restoring) |
 | `src/Layout` | The canvas maths (deriving, nearest window, Tidy Up, free spots, snapping), no Windows APIs |
 | `src/Layout.Tests` | Its tests: by hand, and against the Mac app's own Swift on random layouts |
 | `src/Native` | Hand-written Win32 declarations |

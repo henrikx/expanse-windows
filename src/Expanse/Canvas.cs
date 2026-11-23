@@ -205,6 +205,7 @@ sealed partial class Canvas
         events = new WinEvents(OnWindowEvent);
         WireSearchBox();
         WirePinnedFrames();
+        appSupports.Start(() => Post(AppsChanged));
         desktopInput = new DesktopInput(overlay.Hwnd);
         // Told when the screen locks and the displays sleep (see Handle).
         if (!WTSRegisterSessionNotification(overlay.Hwnd, 0 /* NOTIFY_FOR_THIS_SESSION */))
@@ -404,6 +405,9 @@ sealed partial class Canvas
         windows.Clear();
         windows.AddRange(next);
         SyncOwned();
+        // Here and not in Arrive: one first seen by a sync that arranges nothing (focus on it, zooming out) waits too.
+        if (initialSyncDone)
+            foreach (var w in added.Where(w => !departed.ContainsKey(w.Hwnd))) WaitToBeKnown(w, mayTake: settings.ArrangeNewWindows);
         return (added, removed);
     }
 
@@ -517,7 +521,8 @@ sealed partial class Canvas
         Sync();
         if (saved?.HandOver == true) Originals.Adopt(windows);
         var open = OpenKeys();
-        int restored = windows.Count(w => TakeSavedSpot(w, open));
+        RefreshMarks();
+        int restored = windows.Count(w => !WaitToBeKnown(w, mayTake: true) && TakeSavedSpot(w, open));
         // Saved on another screen, perhaps: fitted to this one from the home layout.
         if (restored > 0) FitLayoutToScreen(tidy: false, rederiving: new HashSet<nint>());
         int moved = Commit();
@@ -534,7 +539,7 @@ sealed partial class Canvas
     /// brief one's: a splash screen closing would hand the app's main window its spot and size.
     void KeepSpot(CanvasWindow w)
     {
-        if (Environment.TickCount64 - w.SeenAt < BriefWindowMs) return;
+        if (waitingWindows.Forget(w.Hwnd) || Environment.TickCount64 - w.SeenAt < BriefWindowMs) return;
         savedPool.Insert(0, LayoutStore.Entry(w));
         if (savedPool.Count > SavedSpotsKept) savedPool.RemoveRange(SavedSpotsKept, savedPool.Count - SavedSpotsKept);
     }
@@ -543,9 +548,9 @@ sealed partial class Canvas
         windows.Concat(departed.Values).Select(w => ((long)w.Hwnd, w.Pid)).ToHashSet();
 
     /// Its saved spot, if the last run had one for it (see LayoutStore.TakeMatch).
-    bool TakeSavedSpot(CanvasWindow w, ISet<(long, uint)> open)
+    bool TakeSavedSpot(CanvasWindow w, ISet<(long, uint)> open, bool knownOnly = false)
     {
-        if (LayoutStore.TakeMatch(w, open, savedPool) is not SavedWindow e) return false;
+        if (LayoutStore.TakeMatch(w, open, savedPool, knownOnly) is not SavedWindow e) return false;
         w.Frame = w.Frame with { X = e.X, Y = e.Y };
         if (e.PW is double pw && e.PH is double ph && pw > 0) w.Preferred = new SizeD(pw, ph);
         if (e.HX is double hx && e.HY is double hy) w.Home = new Vec(hx, hy);
@@ -568,13 +573,15 @@ sealed partial class Canvas
     {
         if (paused || !initialSyncDone || sessionEnding) return;
         HomeFromCanvas();
+        RefreshMarks();
         // Windows away (minimised, hidden) keep their spots too, and so do saved ones not open now.
         var layout = new SavedLayout
         {
             CenterX = camera.Center(ViewSize).X, CenterY = camera.Center(ViewSize).Y, CleanExit = cleanExit, HandOver = handOver,
             Dpi = canvasDpi,
             FittedWidth = fittedView?.W, FittedHeight = fittedView?.H,
-            Windows = windows.Concat(departed.Values.Where(w => IsWindow(w.Hwnd))).Select(LayoutStore.Entry)
+            // Not one still waiting to be known (Canvas.Apps): where it is now isn't its spot, which is still among the saved.
+            Windows = windows.Concat(departed.Values.Where(w => IsWindow(w.Hwnd))).Where(w => !waitingWindows.Contains(w.Hwnd)).Select(LayoutStore.Entry)
                 .Concat(savedPool.Take(SavedSpotsKept)).ToList(),
             Groups = SavedGroups(), OthersCollapsed = othersCollapsed,
         };
@@ -935,7 +942,8 @@ sealed partial class Canvas
     /// A window that wasn't on the canvas appeared. Back from minimise (or hidden, or another
     /// virtual desktop): to its old spot. New (just shown): into free space beside the window
     /// you were in (Layout.FreeSpot), and the view glides there if that's off screen, as on
-    /// the Mac. With Arrange New Windows off, a new one stays where its app and Windows opened it.
+    /// the Mac. With Arrange New Windows off, a new one stays where its app and Windows opened it,
+    /// unless its app's support knows it as one coming back (Canvas.Apps).
     void Arrive(CanvasWindow w)
     {
         if (departed.Remove(w.Hwnd, out var away))
@@ -946,6 +954,7 @@ sealed partial class Canvas
             return;
         }
         if (!initialSyncDone) return;
+        if (waitingWindows.Contains(w.Hwnd)) return; // until it's known (Canvas.Apps)
         if (!settings.ArrangeNewWindows)
         {
             if (shownRecently.Contains(w.Hwnd)) Log.Info($"new window {w} stays where it opened, {w.Frame}");
@@ -1058,6 +1067,7 @@ sealed partial class Canvas
                 break;
             case EVENT_SYSTEM_MOVESIZESTART:
                 userMoving = hwnd;
+                waitingWindows.Forget(hwnd); // where you put it is where it goes
                 if (PinnedApp(hwnd) is CanvasWindow slidStart && PinnedGroupOf(slidStart)?.SlideHome != null) slidDragged.Add(hwnd);
                 UpdateStackBars();
                 moveStart = (hwnd, Dwm.FrameBounds(hwnd), Environment.TickCount64);
@@ -1316,6 +1326,13 @@ sealed partial class Canvas
         // Focus on a dialog: whether the dialog is in view is what counts, and its owner comes too.
         var focused = w.Owned.FirstOrDefault(o => o.Hwnd == hwnd) ?? w;
         lastFocusedWindow = w.Hwnd;
+        // An app opening its windows gives them focus one after another, none of them at its spot yet:
+        // the view stays, and goes to the one you end up in once they're placed (SettleWaiting).
+        if (waitingWindows.Contains(w.Hwnd))
+        {
+            Log.Info($"focus went to {focused}, waiting to be known: the view stays");
+            return;
+        }
         // Only what Decide needs is read, and in its order: nothing past the hidden check unless it
         // gets that far, the input only soon after a window went away, the mouse only otherwise.
         bool hiddenEnough = settings.AutoCentre && Layout.HiddenEnough(camera.ToView(focused.Frame), GlideArea, settings.AutoCentreHidden);
@@ -3217,6 +3234,9 @@ sealed partial class Canvas
                 KillTimer(overlay.Hwnd, ScrollEndTimer);
                 ScrollEnded();
                 return 0;
+            case WM_TIMER when wParam == WaitingTimer:
+                SettleWaiting();
+                return 0;
             case WM_TIMER when wParam == SettleTimer:
                 KillTimer(overlay.Hwnd, SettleTimer);
                 if (screenLocked || displaysOff) return 0;
@@ -4344,6 +4364,7 @@ sealed partial class Canvas
         events.Dispose();
         desktopInput.Dispose();
         tray.Dispose();
+        appSupports.Stop();
         Save(handOver: true);
         Originals.Save(windows);
         LetGoOfPinned();
@@ -4355,6 +4376,7 @@ sealed partial class Canvas
         events.Dispose();
         desktopInput.Dispose();
         tray.Dispose();
+        appSupports.Stop();
         if (!paused)
         {
             Save(cleanExit: true);
