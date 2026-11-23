@@ -4,8 +4,9 @@
 > - **Groups.** Put windows in named boxes on the canvas. Each virtual desktop has its own.
 > - **A groups panel with search.** It lists every group and its apps with their icons. Start typing
 >   anywhere on the canvas to search group names, app names and window titles.
-> - **Different canvas controls.** Scrolling zooms and stops at 100%, the middle button moves the
->   canvas, dragging on empty canvas selects windows, and Tidy Up is <kbd>Ctrl</kbd> + <kbd>T</kbd>.
+> - **Different canvas controls.** Scrolling zooms (on a touchpad, pinching does) and stops
+>   at 100%, the middle button moves the canvas, dragging on empty canvas selects windows, and Tidy
+>   Up is <kbd>Ctrl</kbd> + <kbd>T</kbd>.
 > - **Stricter multi-monitor handling.** A window's centre decides whether it's on the canvas, and
 >   hot corners only count on the main screen.
 > - **Fixes.**
@@ -88,8 +89,8 @@ start it with Windows.
 | Rest the pointer in a screen corner, or press <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>`</kbd> | Zoom out to every window (do it again to go back) |
 | Click a window | Glide to it and start using it |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Hop to the next window in that direction |
-| Scroll, or pinch on a touchpad | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
-| Middle-button drag | Move around the canvas |
+| Scroll with the wheel, or pinch on a touchpad | Zoom in on the pointer, up to 100%; zoom out with that spot easing to the middle |
+| Middle-button drag, or scroll on a touchpad | Move around the canvas |
 | Drag a window while zoomed out | Move it; it snaps into place |
 | Drag a window's edge or corner while zoomed out | Resize it when you let go, along with the windows of about the same size if it's in a stack; its edges snap to other windows. Not larger than the screen, and an app that won't take the size gets as close as it allows. Only above Group Selection Zoom |
 | <kbd>Ctrl</kbd> + <kbd>T</kbd> | Tidy up: each group of windows lined up and evenly spaced, where it is |
@@ -108,8 +109,8 @@ start it with Windows.
 | <kbd>Shift</kbd> + scroll | Move sideways |
 | <kbd>Space</kbd> + drag | Move around the canvas, starting anywhere |
 | Click empty desktop | Zoom out to every window |
-| Scroll or pinch on empty desktop | Start zooming out from 100% |
-| Middle-button drag on empty desktop | Move around the canvas from 100% |
+| Scroll with the wheel or pinch on empty desktop | Start zooming out from 100% |
+| Middle-button drag, or scroll on a touchpad, on empty desktop | Move around the canvas from 100% |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + middle-button drag | Move around the canvas from 100%, starting over any window |
 | Click or drag in the minimap | Move the view there |
 | Drag on empty canvas, <kbd>Shift</kbd>-click, or <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select windows, and any group the box wholly covers, then drag any of them to move them all |

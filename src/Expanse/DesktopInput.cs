@@ -24,7 +24,14 @@ sealed class DesktopInput : IDisposable
     /// Marks the mouse events the canvas sends itself (their dwExtraInfo).
     public const nint OwnInput = 0x45585031;
     /// Packed into a WM_DESKTOP_WHEEL's wParam with the delta (high word).
-    public const int Horizontal = 1, Ctrl = 2, Shift = 4;
+    public const int Horizontal = 1, Ctrl = 2, Shift = 4, FromTouchpad = 8;
+
+    /// The last wheel turn anywhere was a touchpad's. The hook sees each before the window it's for.
+    public volatile bool TouchpadTurn;
+    /// Two fingers are on the touchpad, resting maybe.
+    public bool TouchpadTouched => Environment.TickCount64 - Interlocked.Read(ref touchedAt) <= TouchpadTurns.FingersMs;
+    long touchedAt = -TouchpadTurns.FingersMs - 1;
+    readonly TouchpadTurns touchpad = new(); // the hook's thread only
 
     readonly nint overlay;
     readonly HookProc proc;
@@ -66,7 +73,17 @@ sealed class DesktopInput : IDisposable
         threadId = Kernel32.GetCurrentThreadId();
         hook = SetWindowsHookEx(14 /* WH_MOUSE_LL */, proc, Kernel32.GetModuleHandle(null), 0);
         Log.Info(hook != 0 ? "desktop input: watching" : $"desktop input: no hook ({Marshal.GetLastPInvokeError()})");
-        while (GetMessage(out var m, 0, 0, 0) > 0) DispatchMessage(ref m);
+        nint touchpadWindow = Touchpad.Follow();
+        while (GetMessage(out var m, 0, 0, 0) > 0)
+        {
+            if (m.message == Touchpad.WM_INPUT)
+            {
+                Touchpad.Read(m.lParam, touchpad);
+                if (touchpad.FingersAt is long at) Interlocked.Exchange(ref touchedAt, at);
+            }
+            DispatchMessage(ref m);
+        }
+        if (touchpadWindow != 0) DestroyWindow(touchpadWindow);
         if (hook != 0) UnhookWindowsHookEx(hook);
     }
 
@@ -79,11 +96,12 @@ sealed class DesktopInput : IDisposable
             if ((uint)wParam is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN) Interlocked.Exchange(ref lastButtonDown, (int)m.time);
             if (m.extra != OwnInput && (uint)wParam is WM_MBUTTONDOWN or 0x208 /* WM_MBUTTONUP */) MiddleHeld = (uint)wParam == WM_MBUTTONDOWN;
         }
+        if (code >= 0 && (uint)wParam is WM_MOUSEWHEEL or WM_MOUSEHWHEEL) TouchpadTurn = touchpad.Turn(Environment.TickCount64);
         if (code >= 0 && Log.ToFile && (uint)wParam is WM_MOUSEWHEEL or WM_MOUSEHWHEEL)
         {
             var m = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
             nint root = GetAncestor(WindowFromPoint(m.pt), GA_ROOT);
-            ScrollLog.Seen((uint)wParam == WM_MOUSEHWHEEL, (short)(m.mouseData >> 16), m.flags, m.extra,
+            ScrollLog.Seen((uint)wParam == WM_MOUSEHWHEEL, (short)(m.mouseData >> 16), m.flags, m.extra, TouchpadTurn,
                 root == overlay ? "the canvas" : IsDesktop(m.pt) ? "the desktop" : "another window");
         }
         if (code >= 0 && Armed)
@@ -111,7 +129,7 @@ sealed class DesktopInput : IDisposable
                     // Not for the other monitors: no canvas there.
                     if (!IsDesktop(m.pt) || !OnMainMonitor(m.pt)) break;
                     int flags = ((uint)wParam == WM_MOUSEHWHEEL ? Horizontal : 0) |
-                                (GetAsyncKeyState(VK_CONTROL) < 0 ? Ctrl : 0) | (GetAsyncKeyState(VK_SHIFT) < 0 ? Shift : 0);
+                                (GetAsyncKeyState(VK_CONTROL) < 0 ? Ctrl : 0) | (GetAsyncKeyState(VK_SHIFT) < 0 ? Shift : 0) | (TouchpadTurn ? FromTouchpad : 0);
                     PostMessage(overlay, WM_DESKTOP_WHEEL, (nint)(((m.mouseData >> 16) << 16) | (uint)flags), Pack(m.pt));
                     return 1; // the desktop doesn't get it
             }

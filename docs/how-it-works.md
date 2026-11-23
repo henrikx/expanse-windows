@@ -15,9 +15,10 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   log space, as on the Mac). Under them is a live picture of the desktop itself, as the Mac's
   canvas opens onto a fresh picture of it: its icons, and the desktop picture however Windows fits
   it, so the overlay rising changes nothing under the windows.
-- **A scroll at 100% snaps when it stops** (a 250 ms pause: a wheel's turns don't say when a scroll
-  ends): the view moves on by the least that leaves at least one window whole and the fewest cut
-  off by the edges of the work area, lining a window's edge up a gap in. At most half a screen.
+- **A scroll at 100% snaps when it stops** (a 250 ms pause with no fingers on the
+  touchpad: the turns don't say when a scroll ends): the view moves on by the least that leaves at
+  least one window whole and the fewest cut off by the edges of the work area, lining a window's
+  edge up a gap in. At most half a screen.
 - **The pictures are DWM shared thumbnail visuals:** DirectComposition visuals that DWM, Windows'
   compositor, fills with each window, in a visual tree over the overlay. Each sits at its canvas
   spot inside one canvas visual, so the camera is a single transform per frame. Expanse never
@@ -61,7 +62,10 @@ for DirectComposition and Direct2D. Nothing is injected into other apps.
   a null key press, then an Alt tap, then `AttachThreadInput`.
 - **The empty desktop** is watched by a low-level mouse hook on its own thread: a click there zooms
   out, a middle-button drag moves the canvas, a scroll (on the main monitor, once it has come far
-  enough to mean it: `ScrollStart`) starts zooming out from 100%. The hook also notes when buttons go down, so a
+  enough to mean it: `ScrollStart`) starts zooming out from 100%, or moves the canvas on a touchpad.
+  Windows sends a touchpad's scroll just as a wheel's, so the same thread reads how many fingers are on a
+  precision touchpad (raw input): turns with two on it, and those that glide on after, are its
+  (`TouchpadTurns`). The hook also notes when buttons go down, so a
   click can be told from the pointer moving (Windows' own "last input" counts both).
 - **Dialogs** (owned windows with a title bar) keep their place by their owner and move with it;
   Windows doesn't move them. One asking something while you're zoomed out is shown over the canvas.

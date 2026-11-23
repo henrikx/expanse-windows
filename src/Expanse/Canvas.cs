@@ -1839,9 +1839,9 @@ sealed partial class Canvas
     /// The part of the view that isn't under the taskbar, where going to a window takes it.
     RectD WorkView => new(work.Left - monitor.Left, work.Top - monitor.Top, work.Width, work.Height);
 
-    /// A wheel turn zoomed out: the wheel (and a touchpad's two-finger scroll, and its pinch) zooms in
-    /// around the pointer, and out onto it (see ZoomOutBy); with Ctrl + Shift it pans up and down, and
-    /// with Shift sideways (see Scrolling.Of). `at`: the pointer, in screen coordinates (packed).
+    /// A wheel turn zoomed out: the wheel (and a touchpad's pinch) zooms in around the pointer, and out
+    /// onto it (see ZoomOutBy); a touchpad's two-finger scroll pans, as the wheel does with Ctrl + Shift
+    /// (up and down) and Shift (sideways): see Scrolling.Of. `at`: the pointer, in screen coordinates (packed).
     void Wheel(ScrollDoes does, int amount, nint at)
     {
         var screen = new Vec((short)(at & 0xFFFF), (short)((at >> 16) & 0xFFFF));
@@ -1877,7 +1877,7 @@ sealed partial class Canvas
     {
         int flags = (int)(wParam & 0xFFFF);
         return Scrolling.Of((flags & DesktopInput.Horizontal) != 0, (short)((wParam >> 16) & 0xFFFF),
-            (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0);
+            (flags & DesktopInput.Ctrl) != 0, (flags & DesktopInput.Shift) != 0, (flags & DesktopInput.FromTouchpad) != 0);
     }
 
     readonly ScrollStart scrollStart = new();
@@ -3173,7 +3173,7 @@ sealed partial class Canvas
     nint? Handle(uint msg, nint wParam, nint lParam)
     {
         if (msg == tray.TaskbarCreated) { tray.Add(); return 0; }
-        ScrollLog.Message(msg, wParam, lParam);
+        ScrollLog.Message(msg, wParam);
         // Timers wait for the tray menu to close: left unkilled, each fires again afterwards.
         if (msg == WM_TIMER && tray.MenuOpen) return 0;
         switch (msg)
@@ -3208,6 +3208,8 @@ sealed partial class Canvas
                 RelayoutForScreen(final: true);
                 return 0;
             case WM_TIMER when wParam == ScrollEndTimer:
+                // Fingers still on the touchpad: not done scrolling. It comes round again.
+                if (desktopInput.TouchpadTouched) return 0;
                 KillTimer(overlay.Hwnd, ScrollEndTimer);
                 ScrollEnded();
                 return 0;
@@ -3228,7 +3230,7 @@ sealed partial class Canvas
                 EndPanIfMiddleUp();
                 WatchCompositor();
                 desktopInput.Armed = !active && !paused;
-                ScrollLog.Flush(overlay.Hwnd);
+                ScrollLog.Flush();
                 if (!CompositorSettled) { hotCorner.Disarm(); return 0; }
                 if (!paused && !gliding && animation == null && drag == null && hotCorner.Poll(settings.HotCorner, monitor))
                 {
@@ -3321,7 +3323,7 @@ sealed partial class Canvas
                 int delta = (short)((wParam >> 16) & 0xFFFF);
                 var (kind, lag) = Log.ToFile ? (ScrollLog.Describe(msg == WM_MOUSEHWHEEL, keys), ScrollLog.Lag) : (null, 0);
                 long began = Stopwatch.GetTimestamp();
-                var (does, amount) = Scrolling.Of(msg == WM_MOUSEHWHEEL, delta, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0);
+                var (does, amount) = Scrolling.Of(msg == WM_MOUSEHWHEEL, delta, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, desktopInput.TouchpadTurn);
                 Wheel(does, amount, lParam);
                 if (kind != null) ScrollLog.Got(kind, delta, Ms(began), lag);
                 return 0;
