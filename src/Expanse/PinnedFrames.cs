@@ -83,6 +83,8 @@ sealed class PinnedFrames
 
     public IEnumerable<nint> Hwnds => byId.Values.Select(f => f.Hwnd);
 
+    public nint HwndOf(long id) => byId.TryGetValue(id, out var f) ? f.Hwnd : 0;
+
     public void Hide()
     {
         foreach (var f in byId.Values) DestroyWindow(f.Hwnd);

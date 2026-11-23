@@ -150,9 +150,11 @@ sealed partial class Canvas
     {
         var spill = new List<RectD>();
         if (!paused && !active)
-            foreach (var g in pinnedGroups.Where(g => g.SlideHome != null))
+            foreach (var g in pinnedGroups.Where(g => g.SlideHome != null || slideMove?.Group == g))
             {
-                var box = g.Box.Offset(new Vec(monitor.Left, monitor.Top));
+                // On its way, either way: all it passes over.
+                var at = slideMove is SlideMove m && m.Group == g ? m.From.Union(m.To) : g.Box;
+                var box = at.Offset(new Vec(monitor.Left, monitor.Top));
                 if (box.X < monitor.Left || box.Right > monitor.Right || box.Y < monitor.Top || box.Bottom > monitor.Bottom) spill.Add(box);
             }
         // All of the windows on the monitor a group reaches, not only the ones it covers: one beside a
@@ -168,10 +170,16 @@ sealed partial class Canvas
                 return true;
             }, 0);
         const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
-        foreach (nint h in raisedOthers.Keys.Where(h => !over.Contains(h)).ToList())
+        var done = raisedOthers.Keys.Where(h => !over.Contains(h)).ToHashSet();
+        if (done.Count > 0)
         {
-            raisedOthers.Remove(h, out bool was);
-            if (!was && IsWindow(h)) SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+            // Each goes on top of the ordinary windows: the lowest first, so they keep their order.
+            var down = new List<nint>();
+            EnumWindows((h, _) => { if (done.Contains(h)) down.Add(h); return true; }, 0);
+            down.Reverse();
+            foreach (nint h in down)
+                if (!raisedOthers[h]) SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+            foreach (nint h in done) raisedOthers.Remove(h);
         }
         if (over.Count == 0) return;
         // Once raised, they keep their order among themselves as you click about (Windows sees to it), so
@@ -180,10 +188,15 @@ sealed partial class Canvas
         var fresh = over.Where(h => !raisedOthers.ContainsKey(h)).ToList();
         if (fresh.Count == 0 && !PinnedOverRaised()) return;
         nint front = GetForegroundWindow();
+        // The top one first and each behind the one before, so none shows over one it was behind.
+        nint before = HWND_TOPMOST;
         foreach (nint h in fresh)
         {
             raisedOthers[h] = (ExStyle(h) & WS_EX_TOPMOST) != 0;
-            SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            SetWindowPos(h, before, 0, 0, 0, 0, flags);
+            // Behind one that's always-on-top, it's that too; if not, the plain way.
+            if ((ExStyle(h) & WS_EX_TOPMOST) == 0) SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            if ((ExStyle(h) & WS_EX_TOPMOST) != 0) before = h;
         }
         // Their order as it was, but one you've just chosen that wasn't among them goes on top.
         if (fresh.Contains(front) && over.Remove(front)) over.Insert(0, front);
@@ -193,15 +206,27 @@ sealed partial class Canvas
         if (batch != 0) EndDeferWindowPos(batch);
     }
 
-    /// A pinned app or frame is above one of the windows raised over slid groups, and over it.
+    /// A pinned app or frame is above one of the windows raised over slid groups, and over it (or
+    /// will be on its way, sliding).
     bool PinnedOverRaised()
     {
+        var sliding = new HashSet<nint>();
+        Vec ahead = default;
+        if (slideMove is SlideMove m)
+        {
+            sliding = m.Apps.Select(a => a.w.Hwnd).Append(pinnedFrames.HwndOf(m.Group.Id)).ToHashSet();
+            ahead = m.To.Origin - m.Group.Box.Origin;
+        }
         var pinned = PinnedApps.Select(w => w.Hwnd).Concat(pinnedFrames.Hwnds).ToHashSet();
         var seen = new List<RectD>();
         bool covered = false;
         EnumWindows((h, _) =>
         {
-            if (pinned.Contains(h) && IsWindowVisible(h) && !IsIconic(h)) seen.Add(Dwm.FrameBounds(h).ToRectD());
+            if (pinned.Contains(h) && IsWindowVisible(h) && !IsIconic(h))
+            {
+                var f = Dwm.FrameBounds(h).ToRectD();
+                seen.Add(sliding.Contains(h) ? f.Union(f.Offset(ahead)) : f);
+            }
             else if (raisedOthers.ContainsKey(h) && seen.Any(r => r.Intersects(Dwm.FrameBounds(h).ToRectD())))
             {
                 covered = true;
@@ -403,7 +428,7 @@ sealed partial class Canvas
         public required RectD From, To;
         public required bool Out;
         public required List<(CanvasWindow w, RectD start)> Apps;
-        public readonly long Start = Stopwatch.GetTimestamp();
+        public long Start = Stopwatch.GetTimestamp();
     }
     SlideMove? slideMove;
     /// Apps of a slid group the user is resizing or moving: focusing them mustn't bring the group in.
@@ -420,6 +445,9 @@ sealed partial class Canvas
         Log.Info($"pinned group \"{g.Name}\" slides out {(side < 0 ? "left" : "right")}");
         g.SlideHome = g.Box;
         slideMove = new SlideMove { Group = g, From = g.Box, To = to, Out = true, Apps = g.Pinned.Select(w => (w, w.Frame)).ToList() };
+        // Before it moves, not once it's there: it would pass over the monitor's windows, then go behind them.
+        KeepOthersOverSlid();
+        slideMove.Start = Stopwatch.GetTimestamp();
         StepSlide();
         LeaveSlidFocus(g);
     }
