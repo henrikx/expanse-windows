@@ -18,8 +18,8 @@ sealed class Settings
     public bool NudgeIntoView { get; set; } = true;
 
     /// Arrange New Windows: a window that opens goes to its saved spot or free space beside you.
-    /// Off, it stays where its app and Windows opened it.
-    public bool ArrangeNewWindows { get; set; } = true;
+    /// Off, to begin with, it stays where its app and Windows opened it.
+    public bool ArrangeNewWindows { get; set; }
 
     /// The desktop picture behind the canvas; off, a plain dark background.
     public bool Wallpaper { get; set; } = true;

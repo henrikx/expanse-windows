@@ -56,8 +56,8 @@ rules line for line.
 - **See everything at once.** Every window, live, laid out the way you arranged it.
 - **Move around by direction.** <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + arrow keys hop to the next
   window to the left, right, above or below.
-- **Arrange like a design tool.** Drag windows around; they snap into neat, even gaps. New
-  windows open beside the one they came from.
+- **Arrange like a design tool.** Drag windows around; they snap into neat, even gaps. With
+  Arrange New Windows on, new windows open beside the one they came from.
 - **At home on a laptop or a big display.** On a smaller screen the layout tightens up, columns
   staying lined up, and plugging back in puts it back exactly.
 - **Easy to leave.** Pause or quit and every window goes straight back to where it was.
