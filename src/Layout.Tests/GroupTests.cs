@@ -198,6 +198,17 @@ static class GroupTests
         Is("label: follows the display's scale", bigLabel.H == 2 * label.H);
         var (_, longLabel, _, _, _) = Groups.LabelRects(new(0, 200, 500, 300), 5000, 1);
         Is("label: a long name is capped", longLabel.W <= Groups.LabelMaxWidth);
+        Is("label: a long name shows in full", Groups.LabelRects(new(0, 200, 240, 300), 700, 1).label.W == 700 + 2 * Groups.LabelPad);
+        foreach (double k in (double[])[1, 1.25, 1.5, 2])
+        {
+            // A pinned group's row, with the dock button between the pin and the can.
+            double step = Math.Round(Groups.LabelHeight * k) + Math.Round(4 * k);
+            var wideBox = new RectD(0, 200, 600 * k, 300);
+            var (_, pinnedLabel, _, _, pinnedTrash) = Groups.LabelRects(wideBox, 900 * k, k, pinned: true);
+            Is($"label: a pinned group's long name leaves its buttons above the box, {k}", pinnedTrash.Right + step <= wideBox.Right && pinnedLabel.W > Groups.PinnedLabelWidth * k);
+            Is($"label: a narrow pinned group's has the room it always had, {k}", Groups.LabelRects(new(0, 200, 240 * k, 300), 900 * k, k, pinned: true).label.W == Groups.PinnedLabelWidth * k);
+            Is($"label: a pinned group's short name is as ever, {k}", Groups.LabelRects(wideBox, 80 * k, k, pinned: true).label == Groups.LabelRects(wideBox, 80 * k, k).label);
+        }
         var labelled = Groups.WithLabel(new(100, 200, 500, 300), 80, 1, 1);
         Same("with label: at 100%, the box and the row above it", new(100, trash.Y, 500, 200 + 300 - trash.Y), labelled);
         var far = Groups.WithLabel(new(100, 200, 50, 300), 80, 1, 0.1);

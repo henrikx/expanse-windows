@@ -726,10 +726,10 @@ sealed class SharedVisualPictures : IPictures
             swatch.Visual.SetOffsetX((float)Math.Round(g.Swatch.X));
             swatch.Visual.SetOffsetY((float)Math.Round(g.Swatch.Y));
             groupLabels.AddVisual(swatch.Visual, false, null);
-            if (t.Text != g.Name || t.Scale != scale) Draw(t, g.Name, scale);
+            float fit = (float)Math.Max(1, Math.Round(g.Label.W));
+            if (t.Text != g.Name || t.Scale != scale || t.Fit != fit) Draw(t, g.Name, scale, fit: fit);
             t.Visual.SetOffsetX((float)Math.Round(g.Label.X));
             t.Visual.SetOffsetY((float)Math.Round(g.Label.Y));
-            t.Visual.SetClip(new Vortice.RawRectF(0, 0, Math.Min(t.W, (float)g.Label.W), t.H));
             groupLabels.AddVisual(t.Visual, false, null);
             var trash = groupTrash[g.Id];
             trash.SetContent(trashSurface);

@@ -143,7 +143,7 @@ sealed partial class Canvas
     /// A pinned group has the dock button between the pin and the delete button.
     (RectD swatch, RectD label, RectD commands, RectD pin, RectD dock, RectD trash) LabelRects(CanvasGroup g, double k)
     {
-        var (swatch, label, commands, pin, trash) = Groups.LabelRects(ViewBox(g), TextWidth(g.Name, k), k);
+        var (swatch, label, commands, pin, trash) = Groups.LabelRects(ViewBox(g), TextWidth(g.Name, k), k, pinned: g.Pinned != null);
         if (g.Pinned == null) return (swatch, label, commands, pin, default, trash);
         double step = pin.W + Math.Round(4 * k);
         return (swatch, label, commands, pin, pin.Offset(new Vec(step, 0)), trash.Offset(new Vec(step, 0)));

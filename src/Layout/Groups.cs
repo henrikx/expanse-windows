@@ -123,8 +123,12 @@ public static class Groups
     /// Group Selection Zoom, as the minimap rounds the zoom: at `setting` percent or lower, a
     /// group's apps are too small to aim at. At most 99, as 100 would take every click on a grouped app.
     public static bool TakeClicksAt(double scale, int setting) => Math.Round(scale * 100) <= Math.Clamp(setting, 0, 99);
-    /// The label, at a display scale of 1.
-    public const double LabelPad = 10, LabelMaxWidth = 320, LabelHeight = 22, LabelLift = 6;
+    /// The label, at a display scale of 1. The most it may take has room for all but the widest of the
+    /// longest names the rename box takes.
+    public const double LabelPad = 10, LabelMaxWidth = 1000, LabelHeight = 22, LabelLift = 6;
+
+    /// The least a pinned group's label may take, however narrow its box, at a display scale of 1.
+    public const double PinnedLabelWidth = 320;
 
     public static bool IsMember(RectD box, RectD app) => box.Contains(app.Center);
 
@@ -375,10 +379,14 @@ public static class Groups
     /// What goes above a box's top-left, in view space, at display scale `k`: the same size at any
     /// zoom. From the left: the colour's circle, close to the label as it's part of what names the
     /// group, then the label, the buttons of its commands and its pin, and the delete button.
-    public static (RectD swatch, RectD label, RectD commands, RectD pin, RectD trash) LabelRects(RectD viewBox, double textWidth, double k)
+    /// `pinned`: you can't move the view to what's off the screen, so the label takes no more than
+    /// leaves the buttons (the dock button too) above the box.
+    public static (RectD swatch, RectD label, RectD commands, RectD pin, RectD trash) LabelRects(RectD viewBox, double textWidth, double k, bool pinned = false)
     {
         double h = Math.Round(LabelHeight * k), y = viewBox.Y - h - Math.Round(LabelLift * k);
-        double w = Math.Min(textWidth + 2 * LabelPad * k, LabelMaxWidth * k);
+        double most = LabelMaxWidth * k;
+        if (pinned) most = Math.Min(most, Math.Max(PinnedLabelWidth * k, viewBox.W - h - Math.Round(2 * k) - 4 * (h + Math.Round(4 * k))));
+        double w = Math.Min(textWidth + 2 * LabelPad * k, most);
         var swatch = new RectD(viewBox.X, y, h, h);
         var label = new RectD(swatch.Right + Math.Round(2 * k), y, w, h);
         var commands = new RectD(label.Right + Math.Round(4 * k), y, h, h);
