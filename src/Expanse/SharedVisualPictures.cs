@@ -117,6 +117,7 @@ sealed class SharedVisualPictures : IPictures
     /// The strip on a pinned group's box that slides it out, with its chevron.
     readonly Dictionary<long, (Strips strip, IDCompositionVisual2 chevron)> groupHandles = new();
     IDCompositionSurface? slideLeftSurface, slideRightSurface;
+    double slideWidth; // the strip's, which they were drawn for
     readonly Dictionary<long, Swatch> groupSwatches = new();
     readonly IDCompositionVisual2 groupBoxLayer, pinnedBoxLayer, pinnedLayer, groupLabels, buttonLayer;
     /// The pictures in pinnedLayer, not canvas (see Pin).
@@ -680,8 +681,6 @@ sealed class SharedVisualPictures : IPictures
             Replace(ref dockLeftOnSurface, DrawButton(PinnedFrames.DockLeftGlyph, groups[0].Trash.H, scale, on: true));
             Replace(ref dockRightSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale));
             Replace(ref dockRightOnSurface, DrawButton(PinnedFrames.DockRightGlyph, groups[0].Trash.H, scale, on: true));
-            Replace(ref slideLeftSurface, DrawButton(PinnedFrames.SlideGlyph(-1), Pinning.HandleWidth * scale, scale, bare: true));
-            Replace(ref slideRightSurface, DrawButton(PinnedFrames.SlideGlyph(1), Pinning.HandleWidth * scale, scale, bare: true));
         }
         foreach (var g in groups)
         {
@@ -813,6 +812,13 @@ sealed class SharedVisualPictures : IPictures
         }
         h.strip.SetColour(tint.R, tint.G, tint.B, tint.A);
         h.strip.Set([g.Handle]);
+        if (slideLeftSurface == null || slideWidth != g.Handle.W)
+        {
+            // By the strip's width, which Decoration Size leaves alone.
+            slideWidth = g.Handle.W;
+            Replace(ref slideLeftSurface, DrawButton(PinnedFrames.SlideGlyph(-1), slideWidth, slideWidth / Pinning.HandleWidth, bare: true));
+            Replace(ref slideRightSurface, DrawButton(PinnedFrames.SlideGlyph(1), slideWidth, slideWidth / Pinning.HandleWidth, bare: true));
+        }
         h.chevron.SetContent(g.Edge < 0 ? slideLeftSurface : slideRightSurface);
         h.chevron.SetOffsetX((float)Math.Round(g.Handle.X));
         h.chevron.SetOffsetY((float)Math.Round(g.Handle.MidY - g.Handle.W / 2));

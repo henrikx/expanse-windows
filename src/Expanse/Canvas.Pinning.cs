@@ -67,7 +67,7 @@ sealed partial class Canvas
 
     /// Where going to a window puts it: the work area, less the strips the pinned groups that keep clear
     /// take. A group slid out takes only the strip of it still on the screen.
-    RectD GlideArea => Pinning.Reserve(WorkView, pinnedGroups.Where(g => g.KeepClear || g.SlideHome != null).Select(g => g.SlideHome != null ? Pinning.Visible(g.Box, WorkView) : g.Box), UiScale);
+    RectD GlideArea => Pinning.Reserve(WorkView, pinnedGroups.Where(g => g.KeepClear || g.SlideHome != null).Select(g => g.SlideHome != null ? Pinning.Visible(g.Box, WorkView) : g.Box), DisplayScale);
 
     /// For the log, of going somewhere: the pinned groups, and what they leave of the screen (GlideArea).
     void LogGlideArea()
@@ -627,7 +627,7 @@ sealed partial class Canvas
     {
         if (g.Pinned == null || g.SlideHome != null || pinMove != null) return;
         FinishSlide();
-        int side = Pinning.SnappedSide(g.Box, WorkView, UiScale);
+        int side = Pinning.SnappedSide(g.Box, WorkView, DisplayScale);
         if (side == 0) return;
         var to = Pinning.Slid(g.Box, side, WorkView);
         Log.Info($"pinned group \"{g.Name}\" slides out {(side < 0 ? "left" : "right")}");
@@ -912,7 +912,7 @@ sealed partial class Canvas
     ResizeEdges PinnedFrameEdges(long id, Vec screenPoint)
     {
         if (paused || active || pinnedGroups.FirstOrDefault(g => g.Id == id) is not CanvasGroup g || g.SlideHome != null) return ResizeEdges.None;
-        return Resizing.EdgesAt(g.Box, screenPoint - new Vec(monitor.Left, monitor.Top), BorderGrab * UiScale);
+        return Resizing.EdgesAt(g.Box, screenPoint - new Vec(monitor.Left, monitor.Top), BorderGrab * DisplayScale);
     }
 
     void WirePinnedFrames()
@@ -1013,7 +1013,7 @@ sealed partial class Canvas
         foreach (var g in pinnedGroups)
         {
             var (swatch, label, _, pin, dock, trash) = WithoutCommands(LabelRects(g, k));
-            var (handle, side) = SlideHandle(g, k);
+            var (handle, side) = SlideHandle(g);
             wanted.Add((new PinnedFrameLook(g.Id, g.Box.Offset(screen), g.Name, swatch.Offset(screen), label.Offset(screen),
                 pin.Offset(screen), trash.Offset(screen), g.Colour, handle.Offset(screen), side, dock.Offset(screen), g.KeepClear, DockSide(g) > 0), LowestPinned(g)));
         }
@@ -1029,10 +1029,12 @@ sealed partial class Canvas
     }
 
     /// The strip that slides the group out, and the side of the screen it's against (0, and an empty one,
-    /// when it isn't against one, is slid out or is on its way).
-    (RectD handle, int side) SlideHandle(CanvasGroup g, double k)
+    /// when it isn't against one, is slid out or is on its way). Decoration Size leaves it as wide as
+    /// ever: any wider, the group's apps would cover it.
+    (RectD handle, int side) SlideHandle(CanvasGroup g)
     {
         if (g.SlideHome != null || slideMove?.Group == g || pinMove?.Group == g) return default;
+        double k = DisplayScale;
         int side = Pinning.SnappedSide(g.Box, WorkView, k);
         return side == 0 ? default : (Pinning.Handle(g.Box, side, k), side);
     }
@@ -1109,8 +1111,8 @@ sealed partial class Canvas
         foreach (var g in pinnedGroups)
         {
             // Over the border along it, as at 100%.
-            if (SlideHandle(g, k) is (RectD handle, not 0) && handle.Contains(p)) return (g, GroupPart.Edge, ResizeEdges.None);
-            var edges = Resizing.EdgesAt(g.Box, p, BorderGrab * k);
+            if (SlideHandle(g) is (RectD handle, not 0) && handle.Contains(p)) return (g, GroupPart.Edge, ResizeEdges.None);
+            var edges = Resizing.EdgesAt(g.Box, p, BorderGrab * DisplayScale);
             if (edges != ResizeEdges.None) return (g, GroupPart.Border, edges);
             if (g.Box.Contains(p)) return (g, GroupPart.Body, ResizeEdges.None);
         }
@@ -1124,7 +1126,7 @@ sealed partial class Canvas
         {
             var row = LabelRects(g, k);
             var (swatch, label, commands, pin, dock, trash) = canvas ? row : WithoutCommands(row);
-            var (handle, side) = SlideHandle(g, k);
+            var (handle, side) = SlideHandle(g);
             // Growing to its spot, its apps are still pictures: its box stays under them till they're there.
             drawings.Add(new GroupDrawing(g.Id, g.Box, g.Name, swatch, label, pin, trash, g == hoveredGroup || drag?.Group == g, g.Colour, Pinned: pinMove?.Group != g,
                 Dock: dock, KeepClear: g.KeepClear, DockRight: DockSide(g) > 0, Handle: handle, Edge: side, Commands: commands));

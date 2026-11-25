@@ -1869,7 +1869,11 @@ sealed partial class Canvas
         if (!TreePanel.Contains(at)) HoverGroup(at, hovered);
     }
 
-    double UiScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
+    /// The main display's scaling. For what isn't drawn: how far the mouse reaches and the view moves.
+    double DisplayScale => GetDpiForWindow(overlay.Hwnd) / 96.0;
+
+    /// What decorations are drawn at: the display's scaling and Decoration Size.
+    double UiScale => Decorations.Scale(DisplayScale, settings.DecorationSize);
 
     /// Picking this at 100% leaves the view where it is: as Auto-Centre When Hidden says, the
     /// same as focus on it outside the canvas. With Auto-Centre off, as long as its centre is on screen.
@@ -1894,7 +1898,7 @@ sealed partial class Canvas
             if (does != ScrollDoes.PanX) ScrollTree(amount);
             return;
         }
-        double step = 0.5 * UiScale; // 60 px a notch at 100%
+        double step = 0.5 * DisplayScale; // 60 px a notch at 100%
         if (does == ScrollDoes.PanX) PanBy(new Vec(amount * step, 0));
         else if (does == ScrollDoes.PanY) PanBy(new Vec(0, amount * step));
         else
@@ -2139,7 +2143,7 @@ sealed partial class Canvas
     {
         guides = lines;
         // The Mac's 1 pt guides are 2 px on a Retina screen.
-        double thickness = Math.Max(2, Math.Round(2 * GetDpiForWindow(overlay.Hwnd) / 96.0));
+        double thickness = Math.Max(2, Math.Round(2 * DisplayScale));
         guidesOverPictures = pictures.SetGuides(lines.Select(l => (camera.ToView(l.From), camera.ToView(l.To))).ToList(), thickness);
     }
 
@@ -2203,6 +2207,7 @@ sealed partial class Canvas
         }, settings.Wallpaper),
         new("Show Window Names", () => { settings.ShowNames = !settings.ShowNames; settings.Save(); }, settings.ShowNames),
         new($"Group Selection Zoom ({(settings.GroupClickZoom > 0 ? $"{settings.GroupClickZoom}%" : "Off")})…", ChooseGroupZoom),
+        new($"Decoration Size ({Decorations.Size(settings.DecorationSize)}%)…", ChooseDecorationSize),
         new("Hot Corner", null, Children: HotCorner.Choices.Select(c => (Tray.Item?)new Tray.Item(c.title, () =>
         {
             settings.HotCorner = c.key;
@@ -3136,7 +3141,7 @@ sealed partial class Canvas
     Camera NudgeCamera(CanvasWindow w)
     {
         if (w.Maximised) return FocusCamera(w);
-        var d = Layout.Nudge(camera.ToView(w.Frame), GlideArea, NudgePadding * UiScale);
+        var d = Layout.Nudge(camera.ToView(w.Frame), GlideArea, NudgePadding * DisplayScale);
         return new Camera(new Vec(Math.Round(camera.Origin.X - d.X), Math.Round(camera.Origin.Y - d.Y)), 1);
     }
 
@@ -3803,7 +3808,7 @@ sealed partial class Canvas
         // DWM thumbnails can't have anything drawn over them: titles, ring and guides go here,
         // under them. Shared visuals draw all that in their own tree (Redraw).
         if (pictures.DrawsDecorations) return;
-        double k = GetDpiForWindow(overlay.Hwnd) / 96.0;
+        double k = UiScale;
         nint font = Gdi32.CreateFont(-(int)(13 * k), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         nint pill = Gdi32.CreateSolidBrush(Gdi32.RGB(32, 32, 34));
         nint oldFont = Gdi32.SelectObject(hdc, font);
@@ -4193,6 +4198,38 @@ sealed partial class Canvas
         Redraw();
     }
 
+    /// Decoration Size…: asks, and everything showing takes the new size straight away.
+    void ChooseDecorationSize()
+    {
+        if (PercentDialog.Ask("Decoration Size",
+            "How big stack tabs, group names and buttons, window names, the groups panel and the minimap are. Your windows stay the size they are.",
+            $"Size, {Decorations.Smallest} to {Decorations.Largest}:", Decorations.Size(settings.DecorationSize), Decorations.Smallest, Decorations.Largest) is int percent
+            && percent != settings.DecorationSize)
+        {
+            settings.DecorationSize = percent;
+            settings.Save();
+            Log.Info($"decoration size: {percent}%");
+            // Their text boxes lie over fields that move and grow.
+            renameBox.Finish(save: true, byKey: false);
+            searchBox.Close();
+            CloseDrawer(save: true);
+            if (!paused)
+            {
+                // A bigger name row needs more room above the box.
+                KeepPinnedOnScreen();
+                if (!active)
+                {
+                    UpdatePinnedFrames();
+                    UpdateStackBars();
+                }
+                ScheduleSave();
+            }
+        }
+        if (!active) return;
+        Focus(overlay.Hwnd);
+        Redraw();
+    }
+
     void ToggleNudgeIntoView()
     {
         settings.NudgeIntoView = !settings.NudgeIntoView;
@@ -4317,7 +4354,7 @@ sealed partial class Canvas
         var lines = new[]
         {
             $"Canvas: {windows.Count} windows, {(paused ? "paused" : "running")}, auto-centre {(settings.AutoCentre ? "on" : "off")}, hot corner {settings.HotCorner}",
-            $"Desktop picture background {(settings.Wallpaper ? "on" : "off")}, window names {(settings.ShowNames ? "shown" : "hidden")}, pictures {pictures.Name}, detailed logging {(settings.DetailedLogging ? "on" : "off")}",
+            $"Desktop picture background {(settings.Wallpaper ? "on" : "off")}, window names {(settings.ShowNames ? "shown" : "hidden")}, decoration size {Decorations.Size(settings.DecorationSize)}%, pictures {pictures.Name}, detailed logging {(settings.DetailedLogging ? "on" : "off")}",
         };
         bool copied = BugReport.Copy(overlay.Hwnd, lines);
         Log.Info(copied ? "copied logs for a bug report" : "copy logs: the clipboard was busy");

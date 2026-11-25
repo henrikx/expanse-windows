@@ -166,7 +166,7 @@ sealed partial class Canvas
         foreach (var g in groups)
         {
             var box = camera.ToView(g.Box);
-            var edges = Resizing.EdgesAt(box, p, BorderGrab * k);
+            var edges = Resizing.EdgesAt(box, p, BorderGrab * DisplayScale);
             if (edges != ResizeEdges.None) return (g, GroupPart.Border, edges);
             if (box.Contains(p)) return (g, GroupPart.Body, ResizeEdges.None);
         }

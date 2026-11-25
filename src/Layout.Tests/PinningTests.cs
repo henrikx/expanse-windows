@@ -36,6 +36,24 @@ static class PinningTests
         Same("a second strip that would leave less than a third isn't taken", new(600, 0, 1400, 1200),
             Pinning.Reserve(work, [new(0, 100, 600, 500), new(1250, 100, 750, 500)], 1));
 
+        // --- Decoration Size ---
+        Is("decoration size: as the display's scaling to begin with", Decorations.Scale(1.5, Decorations.Default) == 1.5);
+        Is("decoration size: on top of the display's scaling", Decorations.Scale(1.5, 200) == 3 && Decorations.Scale(2, 50) == 1);
+        Is("decoration size: a settings file's 0 or 5000 is kept within the choices", Decorations.Scale(1, 0) == 0.5 && Decorations.Scale(1, 5000) == 2);
+        foreach (double k in (double[])[0.5, 0.75, 1.1, 1.33, 2, 3])
+        {
+            // At sizes no display has, what's beside the name still lines up and the label fits its text.
+            var (sw, lb, cm, pn, tr) = Groups.LabelRects(new(100, 200, 500, 300), 80 * k, k);
+            Is($"decoration size: the name row stays in order and above the box, {k}", sw.Right <= lb.X && lb.Right <= cm.X && cm.Right <= pn.X && pn.Right <= tr.X && tr.Bottom <= 200 && lb.W >= 80 * k);
+            foreach (var screen in (Vec[])[new(1366, 768), new(1920, 1080), new(3440, 1440)])
+            {
+                if (k > 2 && screen.Y < 1000) continue; // no display that small is scaled by half as much again
+                var panel = GroupTree.Panel(screen, k, 1000);
+                var rows = GroupTree.ListRect(panel, k);
+                Is($"decoration size: the groups panel is on the screen with room for rows, {k} on {screen}", panel.X >= 0 && panel.Y >= 0 && panel.Bottom <= screen.Y && rows.H >= GroupTree.RowHeight * k);
+            }
+        }
+
         // --- Sliding out of the screen's side ---
         var wk = new RectD(0, 0, 2000, 1200);
         Is("snapped: against the left", Pinning.SnappedSide(new(0, 100, 400, 600), wk, 1) == -1);

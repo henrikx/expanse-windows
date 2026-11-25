@@ -20,7 +20,7 @@ sealed partial class Canvas
         if (over == null && GroupHitAt(p) is (CanvasGroup, GroupPart part, ResizeEdges) && part != GroupPart.Body) return null;
         var grabbable = windows.Select(w => new GrabbableWindow(camera.ToView(w.Frame), CanBeResized(w),
             w.Owned.Select(o => camera.ToView(o.Frame)).ToList())).ToList();
-        return Resizing.WindowEdgeAt(grabbable, p, k) is (int i, ResizeEdges edges) ? (windows[i], edges) : null;
+        return Resizing.WindowEdgeAt(grabbable, p, DisplayScale) is (int i, ResizeEdges edges) ? (windows[i], edges) : null;
     }
 
     /// Windows without a sizing border say they can't be resized. Maximised ones and ones that size

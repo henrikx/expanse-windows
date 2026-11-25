@@ -31,6 +31,9 @@ sealed class Settings
     /// The groups panel on the right of the canvas (G shows or hides it).
     public bool GroupsPanel { get; set; } = true;
 
+    /// Decoration Size: how big what Expanse draws round your windows is, as a percentage (see Decorations).
+    public int DecorationSize { get; set; } = Decorations.Default;
+
     /// Show Window Names: a label over each picture zoomed out (the app's name; the window's title
     /// too on hover). Off, as on the Mac, where titles can be private.
     public bool ShowNames { get; set; }

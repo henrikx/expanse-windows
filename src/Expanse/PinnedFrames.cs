@@ -205,7 +205,7 @@ sealed class PinnedFrames
             var h = Local(look.Handle);
             using var strip = target.CreateSolidColorBrush(new Color4(edgeTint.R, edgeTint.G, edgeTint.B, Math.Min(1, edgeTint.A * Faint * 1.6f)));
             target.FillRectangle(h, strip);
-            using var chevron = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(10 * scale));
+            using var chevron = dwrite.CreateTextFormat("Segoe MDL2 Assets", FontWeight.Normal, Vortice.DirectWrite.FontStyle.Normal, (float)(10 * h.Width / Pinning.HandleWidth));
             chevron.TextAlignment = TextAlignment.Center;
             chevron.ParagraphAlignment = ParagraphAlignment.Center;
             using var chevronInk = target.CreateSolidColorBrush(new Color4(240 / 255f, 240 / 255f, 240 / 255f, Faint));
