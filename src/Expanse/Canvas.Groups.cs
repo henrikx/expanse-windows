@@ -17,7 +17,7 @@ sealed class CanvasGroup(long id, string name, RectD box)
     public List<CanvasWindow>? Pinned;
     /// Pinned and slid out through a side of the screen (see Canvas.Pinning): where its box was. Box is then the slid one.
     public RectD? SlideHome;
-    /// Pinned: going to a window keeps clear of it (the dock button), where it's at a side of the screen.
+    /// Pinned: going to a window keeps clear of it (the dock button).
     public bool KeepClear;
     /// Pinned, its apps as last saved that haven't joined it again since launch (ClaimForPinned).
     public List<SavedWindow>? Waiting;
@@ -586,7 +586,7 @@ sealed partial class Canvas
             FitToScreen(focus);
         }
         var open = windows.Where(w => !w.Maximised).ToList();
-        // Clear of the pinned groups that keep clear (the dock button) at the screen's edges.
+        // Clear of the pinned groups that keep clear (the dock button).
         var area = GlideArea;
         var target = focus?.Maximised == true ? FocusCamera(focus)
             : new Camera(Stacks.GroupOrigin(open.Select(w => w.Frame).ToList(), open.Select(w => (long)w.Hwnd).ToList(),
@@ -597,7 +597,8 @@ sealed partial class Canvas
         hovered = null;
         hoveredGroup = null;
         glideTarget = focus;
-        Log.Info($"go to group \"{g.Name}\": {members.Count} apps, focus {focus?.ToString() ?? "none"}");
+        Log.Info($"go to group \"{g.Name}\": {members.Count} apps, focus {focus?.ToString() ?? "none"}, bounds {(members.Count == 0 ? g.Box : members.Select(GroupFrame).Aggregate((a, b) => a.Union(b)))}");
+        LogGlideArea();
         Animate(target, 0.25, () => HandBack(focus));
     }
 

@@ -14,13 +14,25 @@ static class PinningTests
         Same("at the right edge: the strip up to its left side", new(0, 0, 1500, 1200), Pinning.Reserve(work, [new(1500, 100, 480, 700)], 1));
         Same("at the left edge", new(420, 0, 1580, 1200), Pinning.Reserve(work, [new(10, 300, 410, 500)], 1));
         Same("at the bottom", new(0, 0, 2000, 900), Pinning.Reserve(work, [new(600, 900, 600, 280)], 1));
-        Same("in the middle: nothing", work, Pinning.Reserve(work, [new(700, 400, 400, 300)], 1));
-        Same("in a corner: the narrower strip (a tall group by the left edge)", new(400, 0, 1600, 1200), Pinning.Reserve(work, [new(0, 0, 400, 900)], 1));
+        Same("away from the edges: the strip from the side its middle is nearest", new(1100, 0, 900, 1200), Pinning.Reserve(work, [new(700, 400, 400, 300)], 1));
+        Same("in a corner: the strip that leaves most (a tall group by the left edge)", new(400, 0, 1600, 1200), Pinning.Reserve(work, [new(0, 0, 400, 900)], 1));
         Same("in a corner: a wide one by the top", new(0, 300, 2000, 900), Pinning.Reserve(work, [new(0, 0, 1200, 300)], 1));
+        // A wide screen, 3440x1440 less the taskbar.
+        var wide = new RectD(0, 0, 3440, 1392);
+        Same("a wide screen: a group at the side as tall as it, wider than tall", new(1400, 0, 2040, 1392), Pinning.Reserve(wide, [new(0, 40, 1400, 1340)], 1));
+        Same("a wide screen: one at the side and the bottom", new(0, 0, 2140, 1392), Pinning.Reserve(wide, [new(2140, 200, 1300, 1180)], 1));
+        Same("a wide screen: a corner takes the side, not a third of the height", new(1000, 0, 2440, 1392), Pinning.Reserve(wide, [new(0, 480, 1000, 900)], 1));
+        Same("a wide screen: as tall as it but at neither side", new(2100, 0, 1340, 1392), Pinning.Reserve(wide, [new(1000, 40, 1100, 1340)], 1));
         Same("covering most of the screen: nothing", work, Pinning.Reserve(work, [new(0, 0, 1500, 1100)], 1));
         Same("two: each takes its edge", new(400, 0, 1200, 1200), Pinning.Reserve(work, [new(0, 100, 400, 600), new(1600, 100, 400, 600)], 1));
-        Same("edge reach follows the display's scale", new(0, 0, 1400, 1200), Pinning.Reserve(work, [new(1400, 100, 520, 700)], 2));
-        Same("past the reach at a scale of 1: nothing", work, Pinning.Reserve(work, [new(1400, 100, 520, 700)], 1));
+        Same("the bottom's reach follows the display's scale", new(0, 0, 2000, 850), Pinning.Reserve(work, [new(200, 850, 1200, 290)], 2));
+        Same("past the bottom's reach, and too wide for the side: nothing", work, Pinning.Reserve(work, [new(200, 850, 1200, 290)], 1));
+        Same("away from the right side", new(0, 0, 1400, 1200), Pinning.Reserve(work, [new(1400, 100, 520, 700)], 1));
+        Same("dead centre, too little left either way: nothing", work, Pinning.Reserve(work, [new(600, 300, 800, 600)], 1));
+        // Where the same group was dragged to on a 3440x1440 screen: all of them keep clear.
+        foreach (double x in (double[])[0, 95, 123, 172, 279])
+            Same($"a wide screen: {x} from the left", new(x + 1303, 0, 3440 - x - 1303, 1440),
+                Pinning.Reserve(new(0, 0, 3440, 1440), [new(x, 180, 1303, 1193)], 1));
         Same("a second strip that would leave less than a third isn't taken", new(600, 0, 1400, 1200),
             Pinning.Reserve(work, [new(0, 100, 600, 500), new(1250, 100, 750, 500)], 1));
 

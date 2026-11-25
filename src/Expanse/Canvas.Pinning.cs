@@ -52,11 +52,10 @@ sealed partial class Canvas
     /// A group's box on the screen.
     RectD ViewBox(CanvasGroup g) => g.Pinned != null ? g.Box : camera.ToView(g.Box);
 
-    /// Where going to a window puts it: the work area, less the strips pinned groups at its edges take.
     /// -1 where its middle is in the left half of the screen, 1 in the right: the side its dock button points to.
-    int DockSide(CanvasGroup g) => g.Box.MidX < WorkView.MidX ? -1 : 1;
+    int DockSide(CanvasGroup g) => Pinning.DockSide(g.Box, WorkView);
 
-    /// The dock button: whether going to a window keeps clear of this group (where it's at a side of the screen).
+    /// The dock button: whether going to a window keeps clear of this group.
     void ToggleKeepClear(CanvasGroup g)
     {
         g.KeepClear = !g.KeepClear;
@@ -66,8 +65,17 @@ sealed partial class Canvas
         else UpdatePinnedFrames();
     }
 
-    /// A group slid out takes only the strip of it still on the screen.
+    /// Where going to a window puts it: the work area, less the strips the pinned groups that keep clear
+    /// take. A group slid out takes only the strip of it still on the screen.
     RectD GlideArea => Pinning.Reserve(WorkView, pinnedGroups.Where(g => g.KeepClear || g.SlideHome != null).Select(g => g.SlideHome != null ? Pinning.Visible(g.Box, WorkView) : g.Box), UiScale);
+
+    /// For the log, of going somewhere: the pinned groups, and what they leave of the screen (GlideArea).
+    void LogGlideArea()
+    {
+        if (pinnedGroups.Count == 0) return;
+        Log.Info($"going clear of pinned groups: {GlideArea} of {WorkView}; "
+            + string.Join(", ", pinnedGroups.Select(g => $"\"{g.Name}\" {g.Box} dock {(g.KeepClear ? "on" : "off")}{(g.SlideHome != null ? " slid out" : "")}")));
+    }
 
     /// Where a pinned group's box may be: the work area, less the room its name row takes above it.
     RectD PinnedRoom

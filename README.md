@@ -168,8 +168,8 @@ the group back on the canvas under where it is, or at the nearest free spot. Its
 they are and in front, through glides, hops, scrolling and zooming out. Zoomed out, drag the box to
 move it and its border to resize it; click an app in it to go back to 100% where you are, in that
 app. Drag an app out of the box to put it on the canvas, or one in to add it. The dock button right of the
-pin (blue when on) makes going to a window keep clear of a group at an edge of the screen, centring it in the rest, never under
-the group; off, the group stays over whatever is behind it. A
+pin (blue when on) makes going to a window keep clear of the group, wherever on the screen it is, as long
+as that leaves room: the window is centred beside it. Off, the group stays over whatever is behind it. A
 maximised app can't be pinned.
 A pinned group snapped to the left or right of the screen has a strip along that side, at 100% and
 zoomed out: click it to slide the group out through the side, apps and all, until about a tenth of

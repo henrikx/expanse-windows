@@ -6,13 +6,18 @@ namespace Expanse;
 public static class Pinning
 {
     /// How near a screen edge (view pixels, at a display scale of 1) a pinned group may be and
-    /// still count as sitting at it, taking that strip from glides.
+    /// still count as sitting at it.
     public const double EdgeReach = 48;
 
-    /// The part of `work` that going to a window uses, with pinned groups at `spots` sitting at its
-    /// edges taken out: the strip from the edge to the far side of the group, like a docked bar. A
-    /// group at two edges (a corner) takes the narrower strip. One that covers more than half the
-    /// work area takes nothing, and nor does one that would leave less than a third of it either
+    /// The side of `work` a pinned group docks at (-1 left, 1 right), which its dock button points to:
+    /// the half its middle is in.
+    public static int DockSide(RectD box, RectD work) => box.MidX < work.MidX ? -1 : 1;
+
+    /// The part of `work` that going to a window uses, with the pinned groups at `spots` that keep clear
+    /// taken out: the strip from the screen's side to the far side of the group, like a docked bar,
+    /// however far from that side it is (you said so with the dock button). One sitting at the top or
+    /// the bottom may take that strip instead, if it leaves more. One that covers more than half the
+    /// work area takes nothing, and no strip is taken that would leave less than a third of it either
     /// way: a window has to go somewhere.
     public static RectD Reserve(RectD work, IEnumerable<RectD> spots, double k)
     {
@@ -21,15 +26,13 @@ public static class Pinning
         foreach (var s in spots)
         {
             if (s.W * s.H > work.W * work.H / 2 || !s.Intersects(work)) continue;
-            var strips = new List<(double size, RectD rest)>(4);
-            if (s.X - work.X <= reach) strips.Add((s.Right - work.X, RestFrom(left, x: s.Right)));
-            if (work.Right - s.Right <= reach) strips.Add((work.Right - s.X, RestTo(left, right: s.X)));
-            if (s.Y - work.Y <= reach) strips.Add((s.Bottom - work.Y, RestFrom(left, y: s.Bottom)));
-            if (work.Bottom - s.Bottom <= reach) strips.Add((work.Bottom - s.Y, RestTo(left, bottom: s.Y)));
-            if (strips.Count == 0) continue;
-            var rest = strips.MinBy(t => t.size).rest;
-            if (rest.W < work.W / 3 || rest.H < work.H / 3) continue;
-            left = rest;
+            var rests = new List<RectD>(3);
+            rests.Add(DockSide(s, work) < 0 ? RestFrom(left, x: s.Right) : RestTo(left, right: s.X));
+            if (s.Y - work.Y <= reach) rests.Add(RestFrom(left, y: s.Bottom));
+            if (work.Bottom - s.Bottom <= reach) rests.Add(RestTo(left, bottom: s.Y));
+            // Before choosing: by the top, a tall group at a side would take the whole screen.
+            rests.RemoveAll(r => r.W < work.W / 3 || r.H < work.H / 3);
+            if (rests.Count > 0) left = rests.MaxBy(r => r.W * r.H);
         }
         return left;
     }

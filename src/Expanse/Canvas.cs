@@ -2646,6 +2646,7 @@ sealed partial class Canvas
         hovered = null;
         glideTarget = focus;
         Log.Info(focus != null ? $"dive into {focus}" : "back to 100%");
+        if (focus != null) LogGlideArea();
         Animate(target, duration, () => HandBack(focus));
     }
 
@@ -3123,7 +3124,7 @@ sealed partial class Canvas
         double ax = work.Left - monitor.Left, ay = work.Top - monitor.Top;
         // Maximised: exactly where maximised windows sit (Place maximises it there).
         if (w.Maximised) return new Camera(new Vec(Math.Round(w.Frame.X - ax), Math.Round(w.Frame.Y - ay)), 1);
-        // Clear of the pinned groups that keep clear (the dock button) at the screen's edges.
+        // Clear of the pinned groups that keep clear (the dock button).
         var area = GlideArea;
         double x = area.X + (area.W - w.Frame.W) / 2;
         double y = w.Frame.H > area.H ? area.Y : area.Y + (area.H - w.Frame.H) / 2;
